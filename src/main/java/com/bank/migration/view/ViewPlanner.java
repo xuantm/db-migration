@@ -1,0 +1,36 @@
+package com.bank.migration.view;
+
+import com.bank.migration.domain.ObjectStatus;
+import com.bank.migration.domain.ViewMetadata;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import org.springframework.stereotype.Service;
+
+@Service
+public class ViewPlanner {
+    public ViewPlan plan(String targetSchema, ViewMetadata view) {
+        List<String> notes = new ArrayList<>();
+        String normalizedSql = view.sql().replaceAll("\\s+", " ").trim();
+        String lowerSql = normalizedSql.toLowerCase(Locale.ROOT);
+
+        if (lowerSql.contains("sys_context")) {
+            notes.add("Oracle-specific SQL detected: sys_context");
+        }
+        if (lowerSql.contains("connect by")) {
+            notes.add("Oracle-specific SQL detected: connect by");
+        }
+        if (lowerSql.contains(" from dual")) {
+            notes.add("Oracle-specific SQL detected: dual");
+        }
+
+        ObjectStatus status = notes.isEmpty() ? ObjectStatus.READY : ObjectStatus.NEEDS_REVIEW;
+        String sql = "create or replace view " + lower(targetSchema) + "." + lower(view.name())
+            + " as " + normalizedSql;
+        return new ViewPlan(view.name(), status, sql, notes);
+    }
+
+    private static String lower(String value) {
+        return value.toLowerCase(Locale.ROOT);
+    }
+}
