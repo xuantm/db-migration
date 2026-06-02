@@ -7,12 +7,15 @@ import com.bank.migration.domain.MigrationManifest;
 import com.bank.migration.domain.ObjectStatus;
 import com.bank.migration.domain.TableMetadata;
 import com.bank.migration.domain.ViewMetadata;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.stream.Collectors;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -52,6 +55,14 @@ public class OracleMetadataScanner {
         from all_indexes i
         join all_ind_columns ic on ic.index_owner = i.owner and ic.index_name = i.index_name
         where i.owner = ?
+          and not exists (
+            select 1
+            from all_constraints c
+            where c.owner = i.owner
+              and c.table_name = i.table_name
+              and c.index_name = i.index_name
+              and c.constraint_type in ('P', 'U')
+          )
         order by i.table_name, i.index_name, ic.column_position
         """;
 
@@ -62,6 +73,16 @@ public class OracleMetadataScanner {
         order by view_name
         """;
 
+    static final RowMapper<ColumnRow> COLUMN_ROW_MAPPER = (rs, rowNum) -> new ColumnRow(
+        rs.getString("table_name"),
+        rs.getString("column_name"),
+        rs.getString("data_type"),
+        toInteger(rs.getObject("data_precision")),
+        toInteger(rs.getObject("data_scale")),
+        rs.getString("nullable"),
+        rs.getString("data_default")
+    );
+
     private final JdbcTemplate jdbc;
 
     public OracleMetadataScanner(JdbcTemplate jdbc) {
@@ -69,16 +90,10 @@ public class OracleMetadataScanner {
     }
 
     public MigrationManifest scan(String runId, String sourceSchema) {
-        List<String> tableNames = jdbc.query(TABLE_SQL, (rs, rowNum) -> rs.getString("table_name"), sourceSchema);
-        List<ColumnRow> columns = jdbc.query(COLUMN_SQL, (rs, rowNum) -> new ColumnRow(
-            rs.getString("table_name"),
-            rs.getString("column_name"),
-            rs.getString("data_type"),
-            (Integer) rs.getObject("data_precision"),
-            (Integer) rs.getObject("data_scale"),
-            rs.getString("nullable"),
-            rs.getString("data_default")
-        ), sourceSchema);
+        String oracleOwner = normalizeOracleOwner(sourceSchema);
+
+        List<String> tableNames = jdbc.query(TABLE_SQL, (rs, rowNum) -> rs.getString("table_name"), oracleOwner);
+        List<ColumnRow> columns = jdbc.query(COLUMN_SQL, COLUMN_ROW_MAPPER, oracleOwner);
         List<KeyRow> keys = jdbc.query(KEY_SQL, (rs, rowNum) -> new KeyRow(
             rs.getString("table_name"),
             rs.getString("constraint_name"),
@@ -86,21 +101,23 @@ public class OracleMetadataScanner {
             rs.getString("column_name"),
             rs.getString("referenced_table_name"),
             rs.getString("referenced_column_name")
-        ), sourceSchema);
+        ), oracleOwner);
         List<IndexRow> indexes = jdbc.query(INDEX_SQL, (rs, rowNum) -> new IndexRow(
             rs.getString("table_name"),
             rs.getString("index_name"),
             rs.getString("uniqueness"),
             rs.getString("column_name")
-        ), sourceSchema);
+        ), oracleOwner);
+        // The current scanner intentionally reads ALL_VIEWS.TEXT only; later view planning/reporting
+        // will flag unsupported Oracle view SQL for review.
         List<ViewRow> views = jdbc.query(VIEW_SQL, (rs, rowNum) -> new ViewRow(
             rs.getString("view_name"),
             rs.getString("text")
-        ), sourceSchema);
+        ), oracleOwner);
 
         List<TableMetadata> tables = tableNames.stream()
             .map(table -> new TableMetadata(
-                sourceSchema,
+                oracleOwner,
                 table,
                 ObjectStatus.READY,
                 toColumns(table, columns),
@@ -110,10 +127,10 @@ public class OracleMetadataScanner {
             .toList();
 
         List<ViewMetadata> viewMetadata = views.stream()
-            .map(view -> new ViewMetadata(sourceSchema, view.name(), ObjectStatus.READY, view.sql(), List.of(), List.of()))
+            .map(view -> new ViewMetadata(oracleOwner, view.name(), ObjectStatus.READY, view.sql(), List.of(), List.of()))
             .toList();
 
-        return new MigrationManifest(runId, sourceSchema, tables, viewMetadata);
+        return new MigrationManifest(runId, oracleOwner, tables, viewMetadata);
     }
 
     private static List<ColumnMetadata> toColumns(String table, List<ColumnRow> rows) {
@@ -171,6 +188,34 @@ public class OracleMetadataScanner {
             case "R" -> "FOREIGN_KEY";
             default -> oracleType;
         };
+    }
+
+    static Integer toInteger(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Integer integer) {
+            return integer;
+        }
+        if (value instanceof Number number) {
+            return toExactInteger(number.toString(), value);
+        }
+        if (value instanceof String text) {
+            return toExactInteger(text, value);
+        }
+        throw new IllegalArgumentException("Unsupported numeric metadata value type: " + value.getClass().getName());
+    }
+
+    private static Integer toExactInteger(String value, Object originalValue) {
+        try {
+            return new BigDecimal(value.trim()).stripTrailingZeros().intValueExact();
+        } catch (RuntimeException ex) {
+            throw new IllegalArgumentException("Unsupported numeric metadata value: " + originalValue, ex);
+        }
+    }
+
+    private static String normalizeOracleOwner(String sourceSchema) {
+        return sourceSchema.toUpperCase(Locale.ROOT);
     }
 
     public record ColumnRow(String tableName, String columnName, String dataType, Integer precision, Integer scale, String nullable, String dataDefault) {}
