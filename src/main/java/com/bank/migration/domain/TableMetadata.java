@@ -9,4 +9,10 @@ public record TableMetadata(
     List<ColumnMetadata> columns,
     List<KeyMetadata> keys,
     List<IndexMetadata> indexes
-) {}
+) {
+    public TableMetadata {
+        columns = List.copyOf(columns == null ? List.of() : columns);
+        keys = List.copyOf(keys == null ? List.of() : keys);
+        indexes = List.copyOf(indexes == null ? List.of() : indexes);
+    }
+}

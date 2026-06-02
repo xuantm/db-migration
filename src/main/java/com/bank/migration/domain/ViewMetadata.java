@@ -9,4 +9,9 @@ public record ViewMetadata(
     String sql,
     List<String> dependencies,
     List<String> notes
-) {}
+) {
+    public ViewMetadata {
+        dependencies = List.copyOf(dependencies == null ? List.of() : dependencies);
+        notes = List.copyOf(notes == null ? List.of() : notes);
+    }
+}

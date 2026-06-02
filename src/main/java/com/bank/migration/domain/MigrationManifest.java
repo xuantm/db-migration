@@ -7,4 +7,9 @@ public record MigrationManifest(
     String sourceSchema,
     List<TableMetadata> tables,
     List<ViewMetadata> views
-) {}
+) {
+    public MigrationManifest {
+        tables = List.copyOf(tables == null ? List.of() : tables);
+        views = List.copyOf(views == null ? List.of() : views);
+    }
+}

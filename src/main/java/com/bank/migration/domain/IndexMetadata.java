@@ -2,4 +2,8 @@ package com.bank.migration.domain;
 
 import java.util.List;
 
-public record IndexMetadata(String name, boolean unique, List<String> columns) {}
+public record IndexMetadata(String name, boolean unique, List<String> columns) {
+    public IndexMetadata {
+        columns = List.copyOf(columns == null ? List.of() : columns);
+    }
+}

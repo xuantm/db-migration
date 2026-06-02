@@ -8,4 +8,9 @@ public record KeyMetadata(
     List<String> columns,
     String referencedTable,
     List<String> referencedColumns
-) {}
+) {
+    public KeyMetadata {
+        columns = List.copyOf(columns == null ? List.of() : columns);
+        referencedColumns = List.copyOf(referencedColumns == null ? List.of() : referencedColumns);
+    }
+}
