@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 @ExtendWith(MockitoExtension.class)
@@ -24,6 +25,11 @@ class PreflightServiceTest {
             Integer.class,
             "bank_core"
         )).thenReturn(3);
+        when(targetJdbc.queryForObject(
+            "select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = ? and c.relkind in ('r','p','v','m','S','f')",
+            Integer.class,
+            "bank_core"
+        )).thenReturn(3);
 
         PreflightService service = new PreflightService(sourceJdbc, targetJdbc);
 
@@ -33,6 +39,96 @@ class PreflightServiceTest {
             assertThat(check.name()).isEqualTo("target-schema-empty");
             assertThat(check.passed()).isFalse();
             assertThat(check.message()).contains("contains 3 existing tables");
+        });
+    }
+
+    @Test
+    void sourceConnectivityFailureStillRunsTargetChecks() {
+        when(sourceJdbc.queryForObject("select 1 from dual", Integer.class))
+            .thenThrow(new DataAccessResourceFailureException("source unavailable"));
+        when(targetJdbc.queryForObject("select 1", Integer.class)).thenReturn(1);
+        when(targetJdbc.queryForObject(
+            "select count(*) from information_schema.tables where table_schema = ?",
+            Integer.class,
+            "bank_core"
+        )).thenReturn(0);
+        when(targetJdbc.queryForObject(
+            "select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = ? and c.relkind in ('r','p','v','m','S','f')",
+            Integer.class,
+            "bank_core"
+        )).thenReturn(0);
+
+        PreflightService service = new PreflightService(sourceJdbc, targetJdbc);
+
+        List<PreflightCheck> checks = service.run("bank_core", true);
+
+        assertThat(checks).hasSize(3);
+        assertThat(checks).anySatisfy(check -> {
+            assertThat(check.name()).isEqualTo("source-connectivity");
+            assertThat(check.passed()).isFalse();
+            assertThat(check.message()).contains("source unavailable");
+        });
+        assertThat(checks).anySatisfy(check -> {
+            assertThat(check.name()).isEqualTo("target-connectivity");
+            assertThat(check.passed()).isTrue();
+        });
+        assertThat(checks).anySatisfy(check -> {
+            assertThat(check.name()).isEqualTo("target-schema-empty");
+            assertThat(check.passed()).isTrue();
+        });
+    }
+
+    @Test
+    void cleanLoadFalseAllowsExistingObjectsButReportsThem() {
+        when(sourceJdbc.queryForObject("select 1 from dual", Integer.class)).thenReturn(1);
+        when(targetJdbc.queryForObject("select 1", Integer.class)).thenReturn(1);
+        when(targetJdbc.queryForObject(
+            "select count(*) from information_schema.tables where table_schema = ?",
+            Integer.class,
+            "bank_core"
+        )).thenReturn(2);
+        when(targetJdbc.queryForObject(
+            "select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = ? and c.relkind in ('r','p','v','m','S','f')",
+            Integer.class,
+            "bank_core"
+        )).thenReturn(5);
+
+        PreflightService service = new PreflightService(sourceJdbc, targetJdbc);
+
+        List<PreflightCheck> checks = service.run("bank_core", false);
+
+        assertThat(checks).anySatisfy(check -> {
+            assertThat(check.name()).isEqualTo("target-schema-empty");
+            assertThat(check.passed()).isTrue();
+            assertThat(check.message()).contains("2 existing tables");
+            assertThat(check.message()).contains("5 existing objects");
+        });
+    }
+
+    @Test
+    void nonTableObjectsFailCleanLoadEvenWhenTableCountIsZero() {
+        when(sourceJdbc.queryForObject("select 1 from dual", Integer.class)).thenReturn(1);
+        when(targetJdbc.queryForObject("select 1", Integer.class)).thenReturn(1);
+        when(targetJdbc.queryForObject(
+            "select count(*) from information_schema.tables where table_schema = ?",
+            Integer.class,
+            "bank_core"
+        )).thenReturn(0);
+        when(targetJdbc.queryForObject(
+            "select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = ? and c.relkind in ('r','p','v','m','S','f')",
+            Integer.class,
+            "bank_core"
+        )).thenReturn(2);
+
+        PreflightService service = new PreflightService(sourceJdbc, targetJdbc);
+
+        List<PreflightCheck> checks = service.run("bank_core", true);
+
+        assertThat(checks).anySatisfy(check -> {
+            assertThat(check.name()).isEqualTo("target-schema-empty");
+            assertThat(check.passed()).isFalse();
+            assertThat(check.message()).contains("0 existing tables");
+            assertThat(check.message()).contains("2 existing objects");
         });
     }
 }
