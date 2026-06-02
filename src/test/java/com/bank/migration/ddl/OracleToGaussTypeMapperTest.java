@@ -36,12 +36,16 @@ class OracleToGaussTypeMapperTest {
 
     @Test
     void mapsCommonTimestampVariantsToTimestamp() {
-        assertThat(mapper.map(new ColumnMetadata("CREATED_AT", "TIMESTAMP(3)", null, null, true, null)).sqlType())
-            .isEqualTo("timestamp");
-        assertThat(mapper.map(new ColumnMetadata("CREATED_AT", "TIMESTAMP WITH TIME ZONE", null, null, true, null)).sqlType())
-            .isEqualTo("timestamp");
-        assertThat(mapper.map(new ColumnMetadata("CREATED_AT", "TIMESTAMP(6) WITH LOCAL TIME ZONE", null, null, true, null)).sqlType())
-            .isEqualTo("timestamp");
+        GaussType plain = mapper.map(new ColumnMetadata("CREATED_AT", "TIMESTAMP(3)", null, null, true, null));
+        GaussType withTimeZone = mapper.map(new ColumnMetadata("CREATED_AT", "TIMESTAMP WITH TIME ZONE", null, null, true, null));
+        GaussType withLocalTimeZone = mapper.map(new ColumnMetadata("CREATED_AT", "TIMESTAMP(6) WITH LOCAL TIME ZONE", null, null, true, null));
+
+        assertThat(plain.sqlType()).isEqualTo("timestamp");
+        assertThat(plain.needsReview()).isFalse();
+        assertThat(withTimeZone.sqlType()).isEqualTo("timestamp with time zone");
+        assertThat(withTimeZone.needsReview()).isFalse();
+        assertThat(withLocalTimeZone.sqlType()).isEqualTo("timestamp with time zone");
+        assertThat(withLocalTimeZone.needsReview()).isFalse();
     }
 
     @Test
