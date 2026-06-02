@@ -33,13 +33,25 @@ class ChunkPlannerTest {
     }
 
     @Test
-    void usesRowIdFallbackWhenNoPrimaryKeyExists() {
+    void usesRowIdFallbackChunksWhenNoPrimaryKeyExists() {
         TableMetadata table = new TableMetadata("BANK_CORE", "AUDIT_LOG", ObjectStatus.WARNING, List.of(), List.of(), List.of());
 
-        List<ChunkPlan> chunks = new ChunkPlanner().plan(table, 1L, 1L, 5000);
+        List<ChunkPlan> chunks = new ChunkPlanner().plan(table, 1L, 10_000L, 5_000);
 
-        assertThat(chunks.getFirst().strategy()).isEqualTo("ROWID_FALLBACK");
-        assertThat(chunks.getFirst().whereClause()).isEqualTo("1 = 1");
+        assertThat(chunks).containsExactly(
+            new ChunkPlan(
+                "AUDIT_LOG-000001",
+                "ROWID",
+                "ROWID in (select rid from (select ROWID rid, row_number() over (order by ROWID) rn from BANK_CORE.AUDIT_LOG) where rn >= 1 and rn <= 5000)",
+                "ROWID_FALLBACK"
+            ),
+            new ChunkPlan(
+                "AUDIT_LOG-000002",
+                "ROWID",
+                "ROWID in (select rid from (select ROWID rid, row_number() over (order by ROWID) rn from BANK_CORE.AUDIT_LOG) where rn >= 5001 and rn <= 10000)",
+                "ROWID_FALLBACK"
+            )
+        );
     }
 
     @Test

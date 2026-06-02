@@ -22,12 +22,25 @@ public class ReportWriter {
     }
 
     private String csv(MigrationReport report) {
-        StringBuilder builder = new StringBuilder("name,status,object,message\n");
+        StringBuilder builder = new StringBuilder("record_type,name,status,object,chunk,database_code,sql_text,message\n");
         report.validations().forEach(result -> builder
+            .append("VALIDATION").append(',')
             .append(csvCell(result.name())).append(',')
             .append(csvCell(result.status().name())).append(',')
             .append(csvCell(result.objectName())).append(',')
+            .append(',')
+            .append(',')
+            .append(',')
             .append(csvCell(result.message())).append('\n'));
+        report.errors().forEach(error -> builder
+            .append("ERROR").append(',')
+            .append(csvCell(error.phase())).append(',')
+            .append(csvCell(error.actionCategory())).append(',')
+            .append(csvCell(error.objectName())).append(',')
+            .append(csvCell(error.chunkId())).append(',')
+            .append(csvCell(error.databaseCode())).append(',')
+            .append(csvCell(error.sqlText())).append(',')
+            .append(csvCell(error.message())).append('\n'));
         return builder.toString();
     }
 
@@ -42,7 +55,21 @@ public class ReportWriter {
             .append(escapeHtml(result.status().name())).append("</td><td>")
             .append(escapeHtml(result.objectName())).append("</td><td>")
             .append(escapeHtml(result.message())).append("</td></tr>"));
-        builder.append("</tbody></table></body></html>");
+        builder.append("</tbody></table>");
+        if (!report.errors().isEmpty()) {
+            builder.append("<h2>Errors</h2>");
+            builder.append("<table><thead><tr><th>Phase</th><th>Category</th><th>Object</th><th>Chunk</th><th>Database Code</th><th>SQL</th><th>Message</th></tr></thead><tbody>");
+            report.errors().forEach(error -> builder.append("<tr><td>")
+                .append(escapeHtml(error.phase())).append("</td><td>")
+                .append(escapeHtml(error.actionCategory())).append("</td><td>")
+                .append(escapeHtml(error.objectName())).append("</td><td>")
+                .append(escapeHtml(error.chunkId())).append("</td><td>")
+                .append(escapeHtml(error.databaseCode())).append("</td><td>")
+                .append(escapeHtml(error.sqlText())).append("</td><td>")
+                .append(escapeHtml(error.message())).append("</td></tr>"));
+            builder.append("</tbody></table>");
+        }
+        builder.append("</body></html>");
         return builder.toString();
     }
 

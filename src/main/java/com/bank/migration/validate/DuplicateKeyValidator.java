@@ -8,9 +8,18 @@ import org.springframework.stereotype.Service;
 @Service
 public class DuplicateKeyValidator {
     public String duplicateSql(String targetSchema, TableMetadata table, KeyMetadata key) {
+        if (key.columns().isEmpty()) {
+            throw new IllegalArgumentException("Key columns must not be empty");
+        }
         String columns = String.join(", ", key.columns().stream().map(DuplicateKeyValidator::lower).toList());
+        String nonNullChecks = String.join(
+            " and ",
+            key.columns().stream().map(DuplicateKeyValidator::lower).map(column -> column + " is not null").toList()
+        );
         return "select " + columns + ", count(*) from " + lower(targetSchema) + "." + lower(table.name())
-            + " group by " + columns + " having count(*) > 1";
+            + " where " + nonNullChecks
+            + " group by " + columns
+            + " having count(*) > 1";
     }
 
     private static String lower(String value) {

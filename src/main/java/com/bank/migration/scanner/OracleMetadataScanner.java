@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Locale;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
@@ -85,7 +86,7 @@ public class OracleMetadataScanner {
 
     private final JdbcTemplate jdbc;
 
-    public OracleMetadataScanner(JdbcTemplate jdbc) {
+    public OracleMetadataScanner(@Qualifier("sourceJdbc") JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
 
