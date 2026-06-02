@@ -19,9 +19,12 @@ public class TableDdlPlanner {
     public List<DdlStatement> plan(String targetSchema, TableMetadata table) {
         String schemaName = lower(targetSchema);
         String tableName = lower(table.name());
+        if (table.columns().isEmpty()) {
+            throw new IllegalArgumentException("Table " + table.name() + " has no columns");
+        }
         List<DdlStatement> statements = new ArrayList<>();
 
-        statements.add(new DdlStatement("TABLE", table.name(), buildCreateTableSql(schemaName, tableName, table.columns())));
+        statements.add(new DdlStatement("TABLE", table.name(), buildCreateTableSql(schemaName, tableName, table.columns(), table.name())));
 
         for (KeyMetadata key : table.keys()) {
             if ("PRIMARY_KEY".equalsIgnoreCase(key.type()) || "UNIQUE".equalsIgnoreCase(key.type())) {
@@ -42,17 +45,26 @@ public class TableDdlPlanner {
         return List.copyOf(statements);
     }
 
-    private String buildCreateTableSql(String schemaName, String tableName, List<ColumnMetadata> columns) {
+    private String buildCreateTableSql(String schemaName, String tableName, List<ColumnMetadata> columns, String tableDisplayName) {
         StringJoiner joiner = new StringJoiner(",\n  ", "create table " + schemaName + "." + tableName + " (\n  ", "\n)");
         for (ColumnMetadata column : columns) {
-            GaussType mapped = typeMapper.map(column);
-            String definition = lower(column.name()) + " " + mapped.sqlType();
-            if (!column.nullable()) {
-                definition += " not null";
-            }
-            joiner.add(definition);
+            joiner.add(columnSql(column, tableDisplayName));
         }
         return joiner.toString();
+    }
+
+    private String columnSql(ColumnMetadata column, String tableName) {
+        GaussType mapped = typeMapper.map(column);
+        if (mapped.needsReview()) {
+            throw new IllegalArgumentException(
+                "Column " + column.name() + " in table " + tableName + " requires review: " + mapped.notes()
+            );
+        }
+        String definition = lower(column.name()) + " " + mapped.sqlType();
+        if (!column.nullable()) {
+            definition += " not null";
+        }
+        return definition;
     }
 
     private String buildKeyConstraintSql(String schemaName, String tableName, KeyMetadata key) {

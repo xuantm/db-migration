@@ -3,8 +3,13 @@ package com.bank.migration.ddl;
 import com.bank.migration.domain.ColumnMetadata;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 public class OracleToGaussTypeMapper {
+    private static final Pattern TIMESTAMP_PATTERN = Pattern.compile(
+        "^TIMESTAMP(?:\\(\\d+\\))?(?: WITH TIME ZONE| WITH LOCAL TIME ZONE)?$"
+    );
+
     public GaussType map(ColumnMetadata column) {
         String oracleType = normalize(column.oracleType());
         return switch (oracleType) {
@@ -19,14 +24,16 @@ public class OracleToGaussTypeMapper {
                 false,
                 List.of()
             );
-            case "DATE", "TIMESTAMP", "TIMESTAMP(6)" -> new GaussType("timestamp", false, List.of());
+            case "DATE" -> new GaussType("timestamp", false, List.of());
             case "CLOB", "NCLOB" -> new GaussType("text", false, List.of());
             case "BLOB", "RAW" -> new GaussType("bytea", false, List.of());
-            default -> new GaussType(
-                "text",
-                true,
-                List.of("Unsupported Oracle type " + oracleType)
-            );
+            default -> isTimestampType(oracleType)
+                ? new GaussType("timestamp", false, List.of())
+                : new GaussType(
+                    "text",
+                    true,
+                    List.of("Unsupported Oracle type " + oracleType)
+                );
         };
     }
 
@@ -49,7 +56,7 @@ public class OracleToGaussTypeMapper {
             if (precision <= 9) {
                 return new GaussType("integer", false, List.of());
             }
-            if (precision <= 19) {
+            if (precision <= 18) {
                 return new GaussType("bigint", false, List.of());
             }
             return new GaussType("numeric(" + precision + ",0)", false, List.of());
@@ -63,6 +70,10 @@ public class OracleToGaussTypeMapper {
     }
 
     private static String normalize(String oracleType) {
-        return oracleType == null ? "" : oracleType.trim().toUpperCase(Locale.ROOT);
+        return oracleType == null ? "" : oracleType.trim().toUpperCase(Locale.ROOT).replaceAll("\\s+", " ");
+    }
+
+    private static boolean isTimestampType(String oracleType) {
+        return TIMESTAMP_PATTERN.matcher(oracleType).matches();
     }
 }

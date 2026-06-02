@@ -1,6 +1,7 @@
 package com.bank.migration.ddl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.bank.migration.domain.ColumnMetadata;
 import com.bank.migration.domain.IndexMetadata;
@@ -20,7 +21,7 @@ class TableDdlPlannerTest {
             "ACCOUNT",
             ObjectStatus.READY,
             List.of(
-                new ColumnMetadata("ID", "NUMBER", 19, 0, false, null),
+                new ColumnMetadata("ID", "NUMBER", 18, 0, false, null),
                 new ColumnMetadata("ACCOUNT_NO", "VARCHAR2", 32, null, false, null)
             ),
             List.of(
@@ -46,5 +47,70 @@ class TableDdlPlannerTest {
         assertThat(statements.get(2).sql()).isEqualTo(
             "create index ix_account_no on target_schema.account (account_no)"
         );
+    }
+
+    @Test
+    void createsUniqueAndForeignKeyStatementsInOrder() {
+        TableMetadata table = new TableMetadata(
+            "BANK_CORE",
+            "ACCOUNT",
+            ObjectStatus.READY,
+            List.of(
+                new ColumnMetadata("ID", "NUMBER", 18, 0, false, null),
+                new ColumnMetadata("ACCOUNT_NO", "VARCHAR2", 32, null, false, null),
+                new ColumnMetadata("CUSTOMER_ID", "NUMBER", 18, 0, false, null)
+            ),
+            List.of(
+                new KeyMetadata("PK_ACCOUNT", "PRIMARY_KEY", List.of("ID"), null, null),
+                new KeyMetadata("UK_ACCOUNT_NO", "UNIQUE", List.of("ACCOUNT_NO"), null, null),
+                new KeyMetadata("FK_ACCOUNT_CUSTOMER", "FOREIGN_KEY", List.of("CUSTOMER_ID"), "CUSTOMER", List.of("ID"))
+            ),
+            List.of(
+                new IndexMetadata("IX_ACCOUNT_NO", false, List.of("ACCOUNT_NO"))
+            )
+        );
+
+        List<DdlStatement> statements = planner.plan("TARGET_SCHEMA", table);
+
+        assertThat(statements).extracting(DdlStatement::phase).containsExactly("TABLE", "CONSTRAINT", "CONSTRAINT", "INDEX", "CONSTRAINT");
+        assertThat(statements).extracting(DdlStatement::objectName).containsExactly(
+            "ACCOUNT",
+            "PK_ACCOUNT",
+            "UK_ACCOUNT_NO",
+            "IX_ACCOUNT_NO",
+            "FK_ACCOUNT_CUSTOMER"
+        );
+        assertThat(statements.get(2).sql()).isEqualTo(
+            "alter table target_schema.account add constraint uk_account_no unique (account_no)"
+        );
+        assertThat(statements.get(4).sql()).isEqualTo(
+            "alter table target_schema.account add constraint fk_account_customer foreign key (customer_id) references target_schema.customer (id)"
+        );
+    }
+
+    @Test
+    void rejectsUnsupportedColumnsBeforeEmittingSql() {
+        TableMetadata table = new TableMetadata(
+            "BANK_CORE",
+            "ACCOUNT",
+            ObjectStatus.WARNING,
+            List.of(new ColumnMetadata("PAYLOAD", "XMLTYPE", null, null, true, null)),
+            List.of(),
+            List.of()
+        );
+
+        assertThatThrownBy(() -> planner.plan("TARGET_SCHEMA", table))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("PAYLOAD")
+            .hasMessageContaining("Unsupported Oracle type XMLTYPE");
+    }
+
+    @Test
+    void rejectsTablesWithoutColumns() {
+        TableMetadata table = new TableMetadata("BANK_CORE", "ACCOUNT", ObjectStatus.WARNING, List.of(), List.of(), List.of());
+
+        assertThatThrownBy(() -> planner.plan("TARGET_SCHEMA", table))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("ACCOUNT");
     }
 }
