@@ -18,3 +18,8 @@ migration:
     max-parallel-tables: ${MIGRATION_BATCH_MAX_PARALLEL_TABLES:2}
   reports:
     output-dir: ${MIGRATION_REPORT_OUTPUT_DIR:build/migration-reports}
+
+spring:
+  batch:
+    job:
+      enabled: false

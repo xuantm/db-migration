@@ -8,7 +8,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.StringJoiner;
+import org.springframework.stereotype.Service;
 
+@Service
 public class TableDdlPlanner {
     private final OracleToGaussTypeMapper typeMapper;
 

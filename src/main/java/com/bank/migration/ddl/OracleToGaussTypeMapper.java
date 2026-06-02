@@ -4,7 +4,9 @@ import com.bank.migration.domain.ColumnMetadata;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
+import org.springframework.stereotype.Service;
 
+@Service
 public class OracleToGaussTypeMapper {
     private static final Pattern TIMESTAMP_WITH_ZONE_PATTERN = Pattern.compile(
         "^TIMESTAMP(?:\\(\\d+\\))?(?: WITH TIME ZONE| WITH LOCAL TIME ZONE)$"
