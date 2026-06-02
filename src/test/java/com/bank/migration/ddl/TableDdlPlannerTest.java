@@ -34,6 +34,7 @@ class TableDdlPlannerTest {
         List<DdlStatement> statements = planner.plan("TARGET_SCHEMA", table);
 
         assertThat(statements).extracting(DdlStatement::phase).containsExactly("TABLE", "CONSTRAINT", "INDEX");
+        assertThat(statements).extracting(DdlStatement::objectName).containsExactly("ACCOUNT", "PK_ACCOUNT", "IX_ACCOUNT_NO");
         assertThat(statements.get(0).sql()).isEqualTo("""
             create table target_schema.account (
               id bigint not null,

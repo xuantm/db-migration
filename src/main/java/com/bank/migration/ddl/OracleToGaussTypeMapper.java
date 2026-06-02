@@ -37,7 +37,7 @@ public class OracleToGaussTypeMapper {
         if (precision == null) {
             return new GaussType(
                 "numeric",
-                true,
+                false,
                 List.of("NUMBER without precision mapped to numeric")
             );
         }

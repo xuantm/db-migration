@@ -21,21 +21,21 @@ public class TableDdlPlanner {
         String tableName = lower(table.name());
         List<DdlStatement> statements = new ArrayList<>();
 
-        statements.add(new DdlStatement("TABLE", tableName, buildCreateTableSql(schemaName, tableName, table.columns())));
+        statements.add(new DdlStatement("TABLE", table.name(), buildCreateTableSql(schemaName, tableName, table.columns())));
 
         for (KeyMetadata key : table.keys()) {
             if ("PRIMARY_KEY".equalsIgnoreCase(key.type()) || "UNIQUE".equalsIgnoreCase(key.type())) {
-                statements.add(new DdlStatement("CONSTRAINT", lower(key.name()), buildKeyConstraintSql(schemaName, tableName, key)));
+                statements.add(new DdlStatement("CONSTRAINT", key.name(), buildKeyConstraintSql(schemaName, tableName, key)));
             }
         }
 
         for (IndexMetadata index : table.indexes()) {
-            statements.add(new DdlStatement("INDEX", lower(index.name()), buildIndexSql(schemaName, tableName, index)));
+            statements.add(new DdlStatement("INDEX", index.name(), buildIndexSql(schemaName, tableName, index)));
         }
 
         for (KeyMetadata key : table.keys()) {
             if ("FOREIGN_KEY".equalsIgnoreCase(key.type())) {
-                statements.add(new DdlStatement("CONSTRAINT", lower(key.name()), buildForeignKeySql(schemaName, tableName, key, targetSchema)));
+                statements.add(new DdlStatement("CONSTRAINT", key.name(), buildForeignKeySql(schemaName, tableName, key, targetSchema)));
             }
         }
 
