@@ -1,0 +1,20 @@
+migration:
+  source:
+    jdbc-url: ${MIGRATION_SOURCE_JDBC_URL}
+    username: ${MIGRATION_SOURCE_USERNAME}
+    password: ${MIGRATION_SOURCE_PASSWORD}
+    driver-class-name: ${MIGRATION_SOURCE_DRIVER_CLASS_NAME:oracle.jdbc.OracleDriver}
+    schema: ${MIGRATION_SOURCE_SCHEMA}
+  target:
+    jdbc-url: ${MIGRATION_TARGET_JDBC_URL}
+    username: ${MIGRATION_TARGET_USERNAME}
+    password: ${MIGRATION_TARGET_PASSWORD}
+    driver-class-name: ${MIGRATION_TARGET_DRIVER_CLASS_NAME:org.postgresql.Driver}
+    schema: ${MIGRATION_TARGET_SCHEMA}
+  clean-load: ${MIGRATION_CLEAN_LOAD:true}
+  batch:
+    chunk-size: ${MIGRATION_BATCH_CHUNK_SIZE:5000}
+    fetch-size: ${MIGRATION_BATCH_FETCH_SIZE:5000}
+    max-parallel-tables: ${MIGRATION_BATCH_MAX_PARALLEL_TABLES:2}
+  reports:
+    output-dir: ${MIGRATION_REPORT_OUTPUT_DIR:build/migration-reports}
