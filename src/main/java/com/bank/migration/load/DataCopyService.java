@@ -34,7 +34,18 @@ public class DataCopyService {
         List<Map<String, Object>> rows = sourceJdbc.query(sourceSql, (rs, rowNum) -> {
             Map<String, Object> row = new LinkedHashMap<>();
             for (String column : sourceColumns) {
-                row.put(column, rs.getObject(column));
+                Object value = rs.getObject(column);
+                if (value != null) {
+                    String className = value.getClass().getName();
+                    if (className.startsWith("oracle.sql.INTERVAL")) {
+                        value = value.toString();
+                    } else if (className.startsWith("oracle.sql.TIMESTAMP")) {
+                        value = rs.getTimestamp(column);
+                    } else if (className.startsWith("oracle.sql.DATE")) {
+                        value = rs.getTimestamp(column);
+                    }
+                }
+                row.put(column, value);
             }
             return row;
         });

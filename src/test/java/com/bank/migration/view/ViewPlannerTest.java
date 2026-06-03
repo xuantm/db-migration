@@ -44,4 +44,23 @@ class ViewPlannerTest {
         assertThat(plan.notes()).contains("Oracle-specific SQL detected: sys_context");
         assertThat(plan.notes()).contains("Oracle-specific SQL detected: dual");
     }
+
+    @Test
+    void marksLegacyJoinAndTranslateForReview() {
+        ViewPlanner planner = new ViewPlanner();
+        ViewMetadata view = new ViewMetadata(
+            "BANK_CORE",
+            "VW_LEGACY",
+            ObjectStatus.READY,
+            "select a.id from tab_a a, tab_b b where a.id = b.id (+) and translate(a.name using nchar_cs) = 'test'",
+            List.of(),
+            List.of()
+        );
+
+        ViewPlan plan = planner.plan("bank_core", view);
+
+        assertThat(plan.status()).isEqualTo(ObjectStatus.NEEDS_REVIEW);
+        assertThat(plan.notes()).contains("Oracle-specific outer join syntax detected: (+)");
+        assertThat(plan.notes()).contains("Oracle-specific character set translation detected: nchar_cs");
+    }
 }

@@ -15,6 +15,9 @@ public class OracleToGaussTypeMapper {
 
     public GaussType map(ColumnMetadata column) {
         String oracleType = normalize(column.oracleType());
+        if (oracleType.startsWith("INTERVAL")) {
+            return new GaussType("interval", false, List.of());
+        }
         return switch (oracleType) {
             case "NUMBER" -> mapNumber(column);
             case "VARCHAR2", "NVARCHAR2" -> new GaussType(

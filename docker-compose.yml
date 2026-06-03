@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  oracle-db:
+    image: gvenzl/oracle-free:slim
+    container_name: oracle-db
+    ports:
+      - "1521:1521"
+    environment:
+      - ORACLE_PASSWORD=OraclePass123
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+    networks:
+      - migration-net
+
+  opengauss-db:
+    image: enmotech/opengauss:6.0.0
+    container_name: opengauss-db
+    privileged: true
+    ports:
+      - "15432:5432"
+    environment:
+      - GS_PASSWORD=GaussPass123!
+    healthcheck:
+      test: ["CMD-SHELL", "su - omm -c \"gs_ctl status -D /var/lib/opengauss/data\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - migration-net
+
+  swingbench:
+    image: domgiles/swingbench:latest
+    container_name: swingbench-init
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+    entrypoint: ["/app/swingbench/bin/oewizard"]
+    networks:
+      - migration-net
+
+networks:
+  migration-net:
+    name: migration-net

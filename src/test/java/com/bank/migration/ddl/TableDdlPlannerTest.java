@@ -72,7 +72,7 @@ class TableDdlPlannerTest {
 
         List<DdlStatement> statements = planner.plan("TARGET_SCHEMA", table);
 
-        assertThat(statements).extracting(DdlStatement::phase).containsExactly("TABLE", "CONSTRAINT", "CONSTRAINT", "INDEX", "CONSTRAINT");
+        assertThat(statements).extracting(DdlStatement::phase).containsExactly("TABLE", "CONSTRAINT", "CONSTRAINT", "INDEX", "FOREIGN_KEY");
         assertThat(statements).extracting(DdlStatement::objectName).containsExactly(
             "ACCOUNT",
             "PK_ACCOUNT",

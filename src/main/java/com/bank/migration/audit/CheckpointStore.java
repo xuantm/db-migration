@@ -6,17 +6,21 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public class CheckpointStore {
-    public static final String UPSERT_SQL = """
+    public static final String UPDATE_SQL = """
+        update migration_audit.checkpoints
+        set rows_read = ?,
+            rows_written = ?,
+            status = ?,
+            retry_count = ?,
+            completed_at = ?,
+            last_error_id = ?
+        where run_id = ? and table_name = ? and chunk_id = ?
+        """;
+
+    public static final String INSERT_SQL = """
         insert into migration_audit.checkpoints
         (run_id, schema_name, table_name, chunk_id, chunk_range, rows_read, rows_written, status, retry_count, started_at, completed_at, last_error_id)
         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        on conflict (run_id, table_name, chunk_id)
-        do update set rows_read = excluded.rows_read,
-                      rows_written = excluded.rows_written,
-                      status = excluded.status,
-                      retry_count = excluded.retry_count,
-                      completed_at = excluded.completed_at,
-                      last_error_id = excluded.last_error_id
         """;
 
     private final JdbcTemplate jdbc;
@@ -26,20 +30,34 @@ public class CheckpointStore {
     }
 
     public void save(CheckpointRecord record) {
-        jdbc.update(
-            UPSERT_SQL,
-            record.runId(),
-            record.schemaName(),
-            record.tableName(),
-            record.chunkId(),
-            record.chunkRange(),
+        int updated = jdbc.update(
+            UPDATE_SQL,
             record.rowsRead(),
             record.rowsWritten(),
             record.status().name(),
             record.retryCount(),
-            record.startedAt(),
-            record.completedAt(),
-            record.lastErrorId()
+            record.completedAt() != null ? java.sql.Timestamp.from(record.completedAt()) : null,
+            record.lastErrorId(),
+            record.runId(),
+            record.tableName(),
+            record.chunkId()
         );
+        if (updated == 0) {
+            jdbc.update(
+                INSERT_SQL,
+                record.runId(),
+                record.schemaName(),
+                record.tableName(),
+                record.chunkId(),
+                record.chunkRange(),
+                record.rowsRead(),
+                record.rowsWritten(),
+                record.status().name(),
+                record.retryCount(),
+                record.startedAt() != null ? java.sql.Timestamp.from(record.startedAt()) : null,
+                record.completedAt() != null ? java.sql.Timestamp.from(record.completedAt()) : null,
+                record.lastErrorId()
+            );
+        }
     }
 }

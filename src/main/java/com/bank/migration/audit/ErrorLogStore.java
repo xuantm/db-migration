@@ -31,7 +31,7 @@ public class ErrorLogStore {
             record.databaseCode(),
             record.message(),
             record.actionCategory(),
-            record.createdAt()
+            record.createdAt() != null ? java.sql.Timestamp.from(record.createdAt()) : null
         );
     }
 }

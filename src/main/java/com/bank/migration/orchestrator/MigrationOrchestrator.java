@@ -117,12 +117,23 @@ public class MigrationOrchestrator {
                 new TableMigrationTasklet(runId, targetSchema, table, chunks, dataCopyService, checkpointStore, errorLogStore).run();
             }
 
-            ddlApplier.apply(allDdl.stream().filter(statement -> !"TABLE".equals(statement.phase())).toList());
+            List<DdlStatement> constraints = phase(allDdl, "CONSTRAINT");
+            if (!constraints.isEmpty()) {
+                ddlApplier.apply(constraints);
+            }
+            List<DdlStatement> indexes = phase(allDdl, "INDEX");
+            if (!indexes.isEmpty()) {
+                ddlApplier.apply(indexes);
+            }
+            List<DdlStatement> fks = phase(allDdl, "FOREIGN_KEY");
+            if (!fks.isEmpty()) {
+                ddlApplier.apply(fks);
+            }
 
             List<ViewPlan> viewPlans = manifest.views().stream()
                 .map(view -> viewPlanner.plan(targetSchema, view))
                 .toList();
-            viewApplier.applyReadyViews(viewPlans);
+            viewApplier.applyReadyViews(targetSchema, viewPlans);
 
             validations.addAll(validationCoordinator.validate(manifest, targetSchema));
             reportWriter.write(new MigrationReport(

@@ -41,7 +41,7 @@ public class OracleMetadataScanner {
         """;
 
     public static final String KEY_SQL = """
-        select c.table_name, c.constraint_name, c.constraint_type, cc.column_name,
+        select c.table_name, c.constraint_name, c.constraint_type, c.validated, cc.column_name,
                r.table_name as referenced_table_name, rcc.column_name as referenced_column_name
         from all_constraints c
         join all_cons_columns cc on cc.owner = c.owner and cc.constraint_name = c.constraint_name
@@ -99,6 +99,7 @@ public class OracleMetadataScanner {
             rs.getString("table_name"),
             rs.getString("constraint_name"),
             normalizeConstraintType(rs.getString("constraint_type")),
+            rs.getString("validated"),
             rs.getString("column_name"),
             rs.getString("referenced_table_name"),
             rs.getString("referenced_column_name")
@@ -117,14 +118,17 @@ public class OracleMetadataScanner {
         ), oracleOwner);
 
         List<TableMetadata> tables = tableNames.stream()
-            .map(table -> new TableMetadata(
-                oracleOwner,
-                table,
-                ObjectStatus.READY,
-                toColumns(table, columns),
-                toKeys(table, keys),
-                toIndexes(table, indexes)
-            ))
+            .map(table -> {
+                List<ColumnMetadata> tableCols = toColumns(table, columns);
+                return new TableMetadata(
+                    oracleOwner,
+                    table,
+                    ObjectStatus.READY,
+                    tableCols,
+                    toKeys(table, keys),
+                    toIndexes(table, indexes, tableCols)
+                );
+            })
             .toList();
 
         List<ViewMetadata> viewMetadata = views.stream()
@@ -155,29 +159,42 @@ public class OracleMetadataScanner {
         List<KeyMetadata> keys = new ArrayList<>();
         for (List<KeyRow> group : grouped.values()) {
             KeyRow first = group.getFirst();
+            boolean isValidated = !"NOT VALIDATED".equalsIgnoreCase(first.validated());
             keys.add(new KeyMetadata(
                 first.constraintName(),
                 first.constraintType(),
                 group.stream().map(KeyRow::columnName).toList(),
                 first.referencedTableName(),
-                group.stream().map(KeyRow::referencedColumnName).filter(value -> value != null).toList()
+                group.stream().map(KeyRow::referencedColumnName).filter(value -> value != null).toList(),
+                isValidated
             ));
         }
         return keys;
     }
 
-    private static List<IndexMetadata> toIndexes(String table, List<IndexRow> rows) {
+    private static List<IndexMetadata> toIndexes(String table, List<IndexRow> rows, List<ColumnMetadata> tableCols) {
+        java.util.Set<String> colNames = tableCols.stream()
+            .map(c -> c.name().toUpperCase(Locale.ROOT))
+            .collect(Collectors.toSet());
+
         Map<String, List<IndexRow>> grouped = rows.stream()
             .filter(row -> row.tableName().equals(table))
             .collect(Collectors.groupingBy(IndexRow::indexName, LinkedHashMap::new, Collectors.toList()));
         List<IndexMetadata> indexes = new ArrayList<>();
         for (List<IndexRow> group : grouped.values()) {
             IndexRow first = group.getFirst();
-            indexes.add(new IndexMetadata(
-                first.indexName(),
-                "UNIQUE".equalsIgnoreCase(first.uniqueness()),
-                group.stream().map(IndexRow::columnName).toList()
-            ));
+            List<String> indexCols = group.stream().map(IndexRow::columnName).toList();
+            
+            boolean allColsExist = indexCols.stream()
+                .allMatch(col -> colNames.contains(col.toUpperCase(Locale.ROOT)));
+                
+            if (allColsExist) {
+                indexes.add(new IndexMetadata(
+                    first.indexName(),
+                    "UNIQUE".equalsIgnoreCase(first.uniqueness()),
+                    indexCols
+                ));
+            }
         }
         return indexes;
     }
@@ -220,7 +237,11 @@ public class OracleMetadataScanner {
     }
 
     public record ColumnRow(String tableName, String columnName, String dataType, Integer precision, Integer scale, String nullable, String dataDefault) {}
-    public record KeyRow(String tableName, String constraintName, String constraintType, String columnName, String referencedTableName, String referencedColumnName) {}
+    public record KeyRow(String tableName, String constraintName, String constraintType, String validated, String columnName, String referencedTableName, String referencedColumnName) {
+        public KeyRow(String tableName, String constraintName, String constraintType, String columnName, String referencedTableName, String referencedColumnName) {
+            this(tableName, constraintName, constraintType, "VALIDATED", columnName, referencedTableName, referencedColumnName);
+        }
+    }
     public record IndexRow(String tableName, String indexName, String uniqueness, String columnName) {}
     public record ViewRow(String name, String sql) {}
 }

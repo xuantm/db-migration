@@ -21,8 +21,9 @@ class ViewApplierTest {
         ViewPlan ready = new ViewPlan("VW_ACCOUNT", ObjectStatus.READY, "create view bank_core.vw_account as select 1", List.of());
         ViewPlan review = new ViewPlan("VW_BAD", ObjectStatus.NEEDS_REVIEW, "create view bank_core.vw_bad as select 1", List.of("review"));
 
-        applier.applyReadyViews(List.of(ready, review));
+        applier.applyReadyViews("bank_core", List.of(ready, review));
 
+        verify(targetJdbc).execute("SET search_path TO bank_core, public");
         verify(targetJdbc).execute("create view bank_core.vw_account as select 1");
         verify(targetJdbc, never()).execute("create view bank_core.vw_bad as select 1");
     }

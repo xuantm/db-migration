@@ -40,7 +40,7 @@ public class TableDdlPlanner {
 
         for (KeyMetadata key : table.keys()) {
             if ("FOREIGN_KEY".equalsIgnoreCase(key.type())) {
-                statements.add(new DdlStatement("CONSTRAINT", key.name(), buildForeignKeySql(schemaName, tableName, key, targetSchema)));
+                statements.add(new DdlStatement("FOREIGN_KEY", key.name(), buildForeignKeySql(schemaName, tableName, key, targetSchema)));
             }
         }
 
@@ -78,7 +78,7 @@ public class TableDdlPlanner {
     private String buildForeignKeySql(String schemaName, String tableName, KeyMetadata key, String targetSchema) {
         String columns = joinColumns(key.columns());
         String referencedColumns = joinColumns(key.referencedColumns());
-        return "alter table "
+        String sql = "alter table "
             + schemaName
             + "."
             + tableName
@@ -93,6 +93,10 @@ public class TableDdlPlanner {
             + " ("
             + referencedColumns
             + ")";
+        if (!key.validated()) {
+            sql += " not valid";
+        }
+        return sql;
     }
 
     private String buildIndexSql(String schemaName, String tableName, IndexMetadata index) {

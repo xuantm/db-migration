@@ -14,7 +14,12 @@ public class ViewApplier {
         this.targetJdbc = targetJdbc;
     }
 
-    public void applyReadyViews(List<ViewPlan> plans) {
+    public void applyReadyViews(String targetSchema, List<ViewPlan> plans) {
+        boolean hasReady = plans.stream().anyMatch(plan -> plan.status() == ObjectStatus.READY);
+        if (!hasReady) {
+            return;
+        }
+        targetJdbc.execute("SET search_path TO " + targetSchema.toLowerCase(java.util.Locale.ROOT) + ", public");
         for (ViewPlan plan : plans) {
             if (plan.status() == ObjectStatus.READY) {
                 targetJdbc.execute(plan.sql());

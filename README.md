@@ -120,3 +120,40 @@ The final report status is:
 - Keep Oracle read consistency expectations explicit during the downtime cutoff.
 - Do not reuse phase one as an incremental sync tool.
 - Do not run against a non-disposable target schema with `MIGRATION_CLEAN_LOAD=true`.
+
+## E2E Integration Testing
+
+An automated E2E integration test suite is provided to verify the tool against real Oracle and openGauss instances.
+
+### Prerequisites
+
+- Docker and Docker Compose installed and running.
+- PowerShell (for running the test script).
+- Java 21 SDK (on the host system).
+
+### Running the E2E Test
+
+To spin up the databases, populate the sample schema using Swingbench, and execute the migration:
+
+```powershell
+./run-e2e-test.ps1
+```
+
+The script performs the following:
+1. Packages the migration tool via a Dockerized Maven container.
+2. Spins up the database containers:
+   - Oracle Free (`gvenzl/oracle-free:slim`) on host port `1521` (password `OraclePass123`).
+   - openGauss (`enmotech/opengauss:6.0.0`) on host port `15432` (password `GaussPass123!`).
+3. Waits until both databases are fully healthy.
+4. Cleans the target `soe` schema on openGauss.
+5. Invokes a one-time Swingbench container to generate the `SOE` sample schema on Oracle (using scale `0.05` for a quick integration run).
+6. Runs the migration jar locally, pointing to the database ports.
+
+### Clean up
+
+To stop the containers and clean up E2E resources:
+
+```bash
+docker compose down --remove-orphans
+```
+

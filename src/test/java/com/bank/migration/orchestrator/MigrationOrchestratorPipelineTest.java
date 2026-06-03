@@ -128,7 +128,7 @@ class MigrationOrchestratorPipelineTest {
         order.verify(ddlApplier).apply(List.of(tableDdl));
         order.verify(dataCopyService).copyChunk(account, "bank_core", chunk);
         order.verify(ddlApplier).apply(List.of(constraintDdl));
-        order.verify(viewApplier).applyReadyViews(List.of(viewPlan));
+        order.verify(viewApplier).applyReadyViews("bank_core", List.of(viewPlan));
         order.verify(validationCoordinator).validate(manifest, "bank_core");
         order.verify(reportWriter).write(any(MigrationReport.class), eq(Path.of("build/reports")));
         verify(checkpointStore).save(org.mockito.ArgumentMatchers.argThat(record ->

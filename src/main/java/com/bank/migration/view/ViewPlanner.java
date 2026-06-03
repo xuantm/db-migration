@@ -23,6 +23,12 @@ public class ViewPlanner {
         if (lowerSql.contains(" from dual")) {
             notes.add("Oracle-specific SQL detected: dual");
         }
+        if (lowerSql.contains("(+)")) {
+            notes.add("Oracle-specific outer join syntax detected: (+)");
+        }
+        if (lowerSql.contains("using nchar_cs") || lowerSql.contains("nchar_cs")) {
+            notes.add("Oracle-specific character set translation detected: nchar_cs");
+        }
 
         ObjectStatus status = notes.isEmpty() ? ObjectStatus.READY : ObjectStatus.NEEDS_REVIEW;
         String sql = "create or replace view " + lower(targetSchema) + "." + lower(view.name())

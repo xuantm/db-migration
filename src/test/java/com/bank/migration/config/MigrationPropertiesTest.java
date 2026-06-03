@@ -9,6 +9,7 @@ import org.springframework.boot.autoconfigure.context.ConfigurationPropertiesAut
 import org.springframework.boot.autoconfigure.validation.ValidationAutoConfiguration;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.bind.validation.BindValidationException;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -24,27 +25,27 @@ class MigrationPropertiesTest {
 
     @Test
     void bindsMigrationProperties() {
-        MapConfigurationPropertySource source = new MapConfigurationPropertySource(Map.of(
-            "migration.source.jdbc-url", "jdbc:oracle:thin:@//oracle-host:1521/BANK",
-            "migration.source.username", "bank_src",
-            "migration.source.password", "secret",
-            "migration.source.driver-class-name", "oracle.jdbc.OracleDriver",
-            "migration.source.schema", "BANK_CORE",
-            "migration.target.jdbc-url", "jdbc:postgresql://gauss-host:5432/bank",
-            "migration.target.username", "bank_dst",
-            "migration.target.password", "secret",
-            "migration.target.driver-class-name", "org.postgresql.Driver",
-            "migration.target.schema", "BANK_CORE",
-            "migration.clean-load", "true",
-            "migration.batch.chunk-size", "5000",
-            "migration.batch.fetch-size", "5000",
-            "migration.batch.max-parallel-tables", "2",
-            "migration.reports.output-dir", "build/migration-reports"
+        MapConfigurationPropertySource source = new MapConfigurationPropertySource(Map.ofEntries(
+            Map.entry("migration.source.jdbc-url", "jdbc:oracle:thin:@//oracle-host:1521/BANK"),
+            Map.entry("migration.source.username", "bank_src"),
+            Map.entry("migration.source.password", "secret"),
+            Map.entry("migration.source.driver-class-name", "oracle.jdbc.OracleDriver"),
+            Map.entry("migration.source.schema", "BANK_CORE"),
+            Map.entry("migration.target.jdbc-url", "jdbc:postgresql://gauss-host:5432/bank"),
+            Map.entry("migration.target.username", "bank_dst"),
+            Map.entry("migration.target.password", "secret"),
+            Map.entry("migration.target.driver-class-name", "org.postgresql.Driver"),
+            Map.entry("migration.target.schema", "BANK_CORE"),
+            Map.entry("migration.clean-load", "true"),
+            Map.entry("migration.batch.chunk-size", "5000"),
+            Map.entry("migration.batch.fetch-size", "5000"),
+            Map.entry("migration.batch.max-parallel-tables", "2"),
+            Map.entry("migration.reports.output-dir", "build/migration-reports")
         ));
 
         MigrationProperties props = new Binder(source)
             .bind("migration", Bindable.of(MigrationProperties.class))
-            .orElseThrow();
+            .orElseThrow(() -> new IllegalStateException("Migration properties did not bind"));
 
         assertThat(props.cleanLoad()).isTrue();
         assertThat(props.source().schema()).isEqualTo("BANK_CORE");
@@ -109,6 +110,9 @@ class MigrationPropertiesTest {
             .run(context -> {
                 assertThat(context).hasFailed();
                 assertThat(context.getStartupFailure())
+                    .hasRootCauseInstanceOf(BindValidationException.class)
+                    .rootCause()
+                    .hasMessageContaining("migration.batch")
                     .hasMessageContaining("chunkSize")
                     .hasMessageContaining("must be greater than or equal to 1");
             });
