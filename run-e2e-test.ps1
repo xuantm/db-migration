@@ -58,7 +58,7 @@ Write-Host ""
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host "5. Running Swingbench to populate Oracle sample schema..." -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
-docker compose run --rm swingbench -cl -cs //oracle-db:1521/FREEPDB1 -u soe -p soe -scale 0.05 -create -ts USERS -dba system -dbap OraclePass123
+docker compose run --rm swingbench -cl -cs //oracle-db:1521/FREEPDB1 -u soe -p soe -scale 0.001 -create -ts USERS -dba system -dbap OraclePass123
 
 # 6. Run the migration tool
 Write-Host ""
