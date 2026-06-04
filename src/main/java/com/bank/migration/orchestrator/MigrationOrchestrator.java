@@ -51,6 +51,19 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import com.bank.migration.manifest.ManifestCacheService;
 import java.util.Optional;
+import com.bank.migration.config.DataOnlyForeignKeyHandling;
+import com.bank.migration.config.MigrationMode;
+import com.bank.migration.config.TargetDataPolicy;
+import com.bank.migration.dataonly.DataOnlyTargetReadinessService;
+import com.bank.migration.dataonly.ForeignKeyTriggerManager;
+import com.bank.migration.dataonly.TableLoadOrderPlanner;
+import com.bank.migration.dataonly.TargetForeignKeyValidator;
+import com.bank.migration.identifier.IdentifierRenderer;
+import org.springframework.beans.factory.annotation.Qualifier;
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class MigrationOrchestrator {
@@ -73,6 +86,11 @@ public class MigrationOrchestrator {
     private final ManifestCacheService manifestCacheService;
     private final RunStatusStore runStatusStore;
     private final PhaseStatusStore phaseStatusStore;
+    private final DataOnlyTargetReadinessService dataOnlyTargetReadinessService;
+    private final ForeignKeyTriggerManager foreignKeyTriggerManager;
+    private final TableLoadOrderPlanner tableLoadOrderPlanner;
+    private final TargetForeignKeyValidator targetForeignKeyValidator;
+    private final IdentifierRenderer targetRenderer;
 
     public MigrationOrchestrator(
         PreflightService preflightService,
@@ -94,7 +112,8 @@ public class MigrationOrchestrator {
     ) {
         this(preflightService, auditSchemaService, scanner, targetSchemaService, ddlPlanner, ddlApplier,
              chunkBoundsService, chunkPlanner, dataCopyService, checkpointStore, errorLogStore,
-             validationCoordinator, viewPlanner, viewApplier, reportWriter, readinessEvaluator, null, null, null);
+             validationCoordinator, viewPlanner, viewApplier, reportWriter, readinessEvaluator, null, null, null,
+             null, null, null, null, null);
     }
 
     public MigrationOrchestrator(
@@ -119,7 +138,39 @@ public class MigrationOrchestrator {
         this(preflightService, auditSchemaService, scanner, targetSchemaService, ddlPlanner, ddlApplier,
              chunkBoundsService, chunkPlanner, dataCopyService, checkpointStore, errorLogStore,
              validationCoordinator, viewPlanner, viewApplier, reportWriter, readinessEvaluator,
-             manifestCacheService, null, null);
+             manifestCacheService, null, null, null, null, null, null, null);
+    }
+
+    public MigrationOrchestrator(
+        PreflightService preflightService,
+        AuditSchemaService auditSchemaService,
+        OracleMetadataScanner scanner,
+        TargetSchemaService targetSchemaService,
+        TableDdlPlanner ddlPlanner,
+        DdlApplier ddlApplier,
+        ChunkBoundsService chunkBoundsService,
+        ChunkPlanner chunkPlanner,
+        DataCopyService dataCopyService,
+        CheckpointStore checkpointStore,
+        ErrorLogStore errorLogStore,
+        ValidationCoordinator validationCoordinator,
+        ViewPlanner viewPlanner,
+        ViewApplier viewApplier,
+        ReportWriter reportWriter,
+        ReadinessEvaluator readinessEvaluator,
+        ManifestCacheService manifestCacheService,
+        RunStatusStore runStatusStore,
+        PhaseStatusStore phaseStatusStore,
+        DataOnlyTargetReadinessService dataOnlyTargetReadinessService,
+        ForeignKeyTriggerManager foreignKeyTriggerManager,
+        TableLoadOrderPlanner tableLoadOrderPlanner,
+        TargetForeignKeyValidator targetForeignKeyValidator
+    ) {
+        this(preflightService, auditSchemaService, scanner, targetSchemaService, ddlPlanner, ddlApplier,
+             chunkBoundsService, chunkPlanner, dataCopyService, checkpointStore, errorLogStore,
+             validationCoordinator, viewPlanner, viewApplier, reportWriter, readinessEvaluator,
+             manifestCacheService, runStatusStore, phaseStatusStore, dataOnlyTargetReadinessService,
+             foreignKeyTriggerManager, tableLoadOrderPlanner, targetForeignKeyValidator, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -142,7 +193,12 @@ public class MigrationOrchestrator {
         ReadinessEvaluator readinessEvaluator,
         ManifestCacheService manifestCacheService,
         RunStatusStore runStatusStore,
-        PhaseStatusStore phaseStatusStore
+        PhaseStatusStore phaseStatusStore,
+        DataOnlyTargetReadinessService dataOnlyTargetReadinessService,
+        ForeignKeyTriggerManager foreignKeyTriggerManager,
+        TableLoadOrderPlanner tableLoadOrderPlanner,
+        TargetForeignKeyValidator targetForeignKeyValidator,
+        @Qualifier("targetIdentifierRenderer") IdentifierRenderer targetRenderer
     ) {
         this.preflightService = preflightService;
         this.auditSchemaService = auditSchemaService;
@@ -163,6 +219,11 @@ public class MigrationOrchestrator {
         this.manifestCacheService = manifestCacheService;
         this.runStatusStore = runStatusStore;
         this.phaseStatusStore = phaseStatusStore;
+        this.dataOnlyTargetReadinessService = dataOnlyTargetReadinessService;
+        this.foreignKeyTriggerManager = foreignKeyTriggerManager;
+        this.tableLoadOrderPlanner = tableLoadOrderPlanner;
+        this.targetForeignKeyValidator = targetForeignKeyValidator;
+        this.targetRenderer = targetRenderer != null ? targetRenderer : new com.bank.migration.identifier.IdentifierRenderer(new com.bank.migration.dialect.GaussDialect(com.bank.migration.identifier.IdentifierMappingPolicy.QUOTE));
     }
 
     public void run(MigrationProperties properties) throws Exception {
@@ -179,7 +240,7 @@ public class MigrationOrchestrator {
         List<ChunkStrategyRecord> chunkStrategies = new ArrayList<>();
 
         try {
-            ensurePreflightPassed(preflightService.run(targetSchema, properties.cleanLoad()));
+            ensurePreflightPassed(preflightService.run(targetSchema, properties.cleanLoad(), properties.mode()));
             auditSchemaService.ensureAuditSchema();
             auditReady = true;
 
@@ -240,6 +301,29 @@ public class MigrationOrchestrator {
             }
             currentPhase = null;
 
+            if (properties.mode() == MigrationMode.DATA_ONLY) {
+                runDataOnlyPipeline(runId, targetSchema, manifest, properties, validations, chunkStrategies, started, errors, readinessFindings);
+                List<ExcludedObjectDecision> excludedDecisions = extractExcludedDecisions(manifest);
+                String runStatus = status(validations, List.of());
+                if (runStatusStore != null) {
+                    runStatusStore.finishRun(runId, Instant.now(), runStatus);
+                }
+                reportWriter.write(new MigrationReport(
+                    runId,
+                    runStatus,
+                    properties.mode().name(),
+                    List.of("ddl-application", "constraints-and-indexes", "view-application"),
+                    started,
+                    Instant.now(),
+                    validations,
+                    errors,
+                    readinessFindings,
+                    excludedDecisions,
+                    chunkStrategies
+                ), Path.of(properties.reports().outputDir()));
+                return;
+            }
+
             // Phase 3: ddl-application
             currentPhase = "ddl-application";
             if (phaseStatusStore != null) {
@@ -265,38 +349,7 @@ public class MigrationOrchestrator {
                 phaseStatusStore.startPhase(runId, currentPhase, Instant.now());
             }
 
-            long totalTablesLoaded = 0;
-            for (TableMetadata table : manifest.tables()) {
-                if (table.status() == ObjectStatus.EXCLUDED) {
-                    continue;
-                }
-                ChunkBounds bounds = chunkBoundsService.bounds(table);
-                List<ChunkPlan> chunks = chunkPlanner.plan(table, bounds.minInclusive(), bounds.maxInclusive(), properties.batch().chunkSize());
-                
-                String strategyName = ChunkStrategySelector.select(table).name();
-                if (chunks.isEmpty()) {
-                    chunkStrategies.add(new ChunkStrategyRecord(
-                        table.name(),
-                        null,
-                        strategyName,
-                        null,
-                        null
-                    ));
-                } else {
-                    for (ChunkPlan chunk : chunks) {
-                        chunkStrategies.add(new ChunkStrategyRecord(
-                            table.name(),
-                            chunk.chunkId(),
-                            chunk.strategy(),
-                            chunk.columnName(),
-                            chunk.whereClause()
-                        ));
-                    }
-                }
-
-                new TableMigrationTasklet(runId, targetSchema, table, chunks, dataCopyService, checkpointStore, errorLogStore).run();
-                totalTablesLoaded++;
-            }
+            long totalTablesLoaded = loadTables(runId, targetSchema, manifest.tables(), properties, chunkStrategies);
 
             if (phaseStatusStore != null) {
                 phaseStatusStore.finishPhase(runId, currentPhase, Instant.now(), "SUCCESS", totalTablesLoaded, "Data loaded for " + totalTablesLoaded + " tables");
@@ -383,16 +436,30 @@ public class MigrationOrchestrator {
             if (runStatusStore != null) {
                 runStatusStore.finishRun(runId, Instant.now(), "FAIL");
             }
-            ErrorRecord error = errorFor(runId, ex);
-            errors.add(error);
-            if (auditReady && !(ex instanceof ChunkMigrationException)) {
-                saveErrorSafely(error);
+            List<ErrorRecord> extractedErrors = errorsFor(runId, ex);
+            errors.addAll(extractedErrors);
+            if (auditReady) {
+                for (ErrorRecord error : extractedErrors) {
+                    if (ex instanceof ChunkMigrationException) {
+                        continue;
+                    }
+                    if (ex.getCause() instanceof ChunkMigrationException && error.errorId().equals(extractedErrors.get(0).errorId())) {
+                        continue;
+                    }
+                    saveErrorSafely(error);
+                }
             }
             try {
                 List<ExcludedObjectDecision> excludedDecisions = extractExcludedDecisions(manifest);
+                String modeName = properties.mode() != null ? properties.mode().name() : "FULL";
+                List<String> skipped = properties.mode() == MigrationMode.DATA_ONLY
+                    ? List.of("ddl-application", "constraints-and-indexes", "view-application")
+                    : List.of();
                 reportWriter.write(new MigrationReport(
                     runId,
                     "FAIL",
+                    modeName,
+                    skipped,
                     started,
                     Instant.now(),
                     validations,
@@ -458,11 +525,28 @@ public class MigrationOrchestrator {
         );
     }
 
-    private ErrorRecord errorFor(String runId, Exception ex) {
+    private List<ErrorRecord> errorsFor(String runId, Exception ex) {
         if (ex instanceof ChunkMigrationException chunkMigrationException) {
-            return chunkMigrationException.errorRecord();
+            return List.of(chunkMigrationException.errorRecord());
         }
-        return errorRecord(runId, ex);
+        if (ex.getCause() instanceof ChunkMigrationException chunkMigrationException) {
+            ErrorRecord orig = chunkMigrationException.errorRecord();
+            ErrorRecord hazard = new ErrorRecord(
+                orig.errorId() + "-hazard",
+                orig.runId(),
+                orig.phase(),
+                orig.objectType(),
+                orig.objectName(),
+                orig.chunkId(),
+                orig.sqlText(),
+                orig.databaseCode(),
+                ex.getMessage(),
+                orig.actionCategory(),
+                orig.createdAt()
+            );
+            return List.of(orig, hazard);
+        }
+        return List.of(errorRecord(runId, ex));
     }
 
     private void saveErrorSafely(ErrorRecord error) {
@@ -518,5 +602,155 @@ public class MigrationOrchestrator {
             }
         }
         return decisions;
+    }
+
+    private long loadTables(
+        String runId,
+        String targetSchema,
+        List<TableMetadata> tables,
+        MigrationProperties properties,
+        List<ChunkStrategyRecord> chunkStrategies
+    ) {
+        long totalTablesLoaded = 0;
+        for (TableMetadata table : tables) {
+            if (table.status() == ObjectStatus.EXCLUDED) {
+                continue;
+            }
+            ChunkBounds bounds = chunkBoundsService.bounds(table);
+            List<ChunkPlan> chunks = chunkPlanner.plan(table, bounds.minInclusive(), bounds.maxInclusive(), properties.batch().chunkSize());
+            recordChunkStrategies(table, chunks, chunkStrategies);
+            new TableMigrationTasklet(runId, targetSchema, table, chunks, dataCopyService, checkpointStore, errorLogStore).run();
+            totalTablesLoaded++;
+        }
+        return totalTablesLoaded;
+    }
+
+    private void recordChunkStrategies(TableMetadata table, List<ChunkPlan> chunks, List<ChunkStrategyRecord> chunkStrategies) {
+        String strategyName = ChunkStrategySelector.select(table).name();
+        if (chunks.isEmpty()) {
+            chunkStrategies.add(new ChunkStrategyRecord(table.name(), null, strategyName, null, null));
+            return;
+        }
+        for (ChunkPlan chunk : chunks) {
+            chunkStrategies.add(new ChunkStrategyRecord(
+                table.name(),
+                chunk.chunkId(),
+                chunk.strategy(),
+                chunk.columnName(),
+                chunk.whereClause()
+            ));
+        }
+    }
+
+    private void runDataOnlyPipeline(
+        String runId,
+        String targetSchema,
+        MigrationManifest manifest,
+        MigrationProperties properties,
+        List<ValidationResult> validations,
+        List<ChunkStrategyRecord> chunkStrategies,
+        Instant started,
+        List<ErrorRecord> errors,
+        List<ReadinessFinding> readinessFindings
+    ) throws Exception {
+        String currentPhase = null;
+        try {
+            // Phase: data-only-target-readiness
+            currentPhase = "data-only-target-readiness";
+            if (phaseStatusStore != null) {
+                phaseStatusStore.startPhase(runId, currentPhase, Instant.now());
+            }
+
+            List<PreflightCheck> dataOnlyChecks = dataOnlyTargetReadinessService.check(
+                manifest,
+                targetSchema,
+                properties.dataOnly().targetDataPolicy()
+            );
+            ensurePreflightPassed(dataOnlyChecks);
+
+            List<TableMetadata> orderedTables = tableLoadOrderPlanner.order(
+                manifest,
+                properties.dataOnly().foreignKeyHandling()
+            );
+
+            if (phaseStatusStore != null) {
+                phaseStatusStore.finishPhase(runId, currentPhase, Instant.now(), "SUCCESS", (long) orderedTables.size(), "Target readiness and ordering completed");
+            }
+            currentPhase = null;
+
+            // Phase: data-load
+            currentPhase = "data-load";
+            if (phaseStatusStore != null) {
+                phaseStatusStore.startPhase(runId, currentPhase, Instant.now());
+            }
+
+            ForeignKeyTriggerManager.DisableSnapshot snapshot = new ForeignKeyTriggerManager.DisableSnapshot();
+            Exception loadFailure = null;
+            long totalTablesLoaded = 0;
+            try {
+                if (properties.dataOnly().foreignKeyHandling() == DataOnlyForeignKeyHandling.DISABLE_REENABLE) {
+                    try {
+                        snapshot = foreignKeyTriggerManager.disableAll(targetSchema, orderedTables);
+                    } catch (ForeignKeyTriggerManager.TriggerDisableException ex) {
+                        snapshot = ex.getSnapshot();
+                        if (ex.getCause() instanceof Exception) {
+                            throw (Exception) ex.getCause();
+                        }
+                        throw ex;
+                    }
+                }
+                totalTablesLoaded = loadTables(runId, targetSchema, orderedTables, properties, chunkStrategies);
+            } catch (Exception ex) {
+                loadFailure = ex;
+                throw ex;
+            } finally {
+                if (properties.dataOnly().foreignKeyHandling() == DataOnlyForeignKeyHandling.DISABLE_REENABLE) {
+                    try {
+                        foreignKeyTriggerManager.enableAll(targetSchema, snapshot);
+                    } catch (Exception enableFailure) {
+                        if (loadFailure != null) {
+                            String combinedMsg = loadFailure.getMessage() + ". Critically, trigger re-enable also failed: " + enableFailure.getMessage();
+                            RuntimeException combinedEx = new RuntimeException(combinedMsg, loadFailure);
+                            combinedEx.addSuppressed(enableFailure);
+                            throw combinedEx;
+                        } else {
+                            throw enableFailure;
+                        }
+                    }
+                }
+            }
+
+            if (phaseStatusStore != null) {
+                phaseStatusStore.finishPhase(runId, currentPhase, Instant.now(), "SUCCESS", totalTablesLoaded, "Data loaded for " + totalTablesLoaded + " tables");
+            }
+            currentPhase = null;
+
+            // Phase: validation
+            currentPhase = "validation";
+            if (phaseStatusStore != null) {
+                phaseStatusStore.startPhase(runId, currentPhase, Instant.now());
+            }
+
+            validations.addAll(validationCoordinator.validate(manifest, targetSchema, true));
+            Set<String> includedTableNames = orderedTables.stream()
+                .filter(table -> table.status() != ObjectStatus.EXCLUDED)
+                .map(table -> targetRenderer.physicalName(table.name()).toUpperCase(Locale.ROOT))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+            validations.addAll(targetForeignKeyValidator.validate(targetSchema, includedTableNames));
+
+            boolean validationFailed = validations.stream().anyMatch(result -> result.status() == ValidationStatus.FAIL);
+            if (phaseStatusStore != null) {
+                phaseStatusStore.finishPhase(runId, currentPhase, Instant.now(), validationFailed ? "FAILED" : "SUCCESS", (long) validations.size(), "Validation completed");
+            }
+            currentPhase = null;
+
+        } catch (Exception ex) {
+            if (currentPhase != null && phaseStatusStore != null) {
+                try {
+                    phaseStatusStore.finishPhase(runId, currentPhase, Instant.now(), "FAILED", null, ex.getMessage());
+                } catch (Exception ignored) {}
+            }
+            throw ex;
+        }
     }
 }

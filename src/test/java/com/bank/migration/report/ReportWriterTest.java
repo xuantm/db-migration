@@ -227,4 +227,30 @@ class ReportWriterTest {
             .contains("TABLE_C")
             .contains("ROWID");
     }
+
+    @Test
+    void writesMigrationModeAndSkippedPhases() throws Exception {
+        MigrationReport report = new MigrationReport(
+            "run-123",
+            "PASS",
+            "DATA_ONLY",
+            List.of("ddl-application", "constraints-and-indexes", "view-application"),
+            Instant.parse("2026-06-04T00:00:00Z"),
+            Instant.parse("2026-06-04T00:01:00Z"),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of()
+        );
+
+        new ReportWriter().write(report, tempDir);
+
+        String json = Files.readString(tempDir.resolve("run-123-report.json"));
+        String html = Files.readString(tempDir.resolve("run-123-report.html"));
+        assertThat(json).contains("\"mode\" : \"DATA_ONLY\"");
+        assertThat(json).contains("ddl-application");
+        assertThat(html).contains("Mode: DATA_ONLY");
+        assertThat(html).contains("Skipped Phases");
+    }
 }

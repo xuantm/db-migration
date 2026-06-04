@@ -2,10 +2,16 @@ package com.bank.migration.preflight;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.startsWith;
 
 import com.bank.migration.dialect.GaussDialect;
 import com.bank.migration.identifier.IdentifierMappingPolicy;
 import com.bank.migration.identifier.IdentifierRenderer;
+import com.bank.migration.config.MigrationMode;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -187,5 +193,23 @@ class PreflightServiceTest {
             assertThat(check.name()).isEqualTo("target-schema-empty");
             assertThat(check.passed()).isTrue();
         });
+    }
+
+    @Test
+    void dataOnlyPreflightSkipsTargetSchemaEmptyCheck() {
+        when(sourceJdbc.queryForObject("select 1 from dual", Integer.class)).thenReturn(1);
+        when(targetJdbc.queryForObject("select 1", Integer.class)).thenReturn(1);
+
+        PreflightService service = serviceWithPolicy(IdentifierMappingPolicy.QUOTE);
+
+        List<PreflightCheck> checks = service.run("bank_core", true, MigrationMode.DATA_ONLY);
+
+        assertThat(checks).extracting(PreflightCheck::name)
+            .containsExactly("source-connectivity", "target-connectivity");
+        verify(targetJdbc, never()).queryForObject(
+            startsWith("select count(*) from information_schema.tables"),
+            eq(Integer.class),
+            any()
+        );
     }
 }

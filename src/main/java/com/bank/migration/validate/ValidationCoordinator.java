@@ -46,6 +46,10 @@ public class ValidationCoordinator {
     }
 
     public List<ValidationResult> validate(MigrationManifest manifest, String targetSchema) {
+        return validate(manifest, targetSchema, false);
+    }
+
+    public List<ValidationResult> validate(MigrationManifest manifest, String targetSchema, boolean skipForeignKeys) {
         List<ValidationResult> results = new ArrayList<>();
         for (TableMetadata table : manifest.tables()) {
             if (table.status() == ObjectStatus.EXCLUDED) {
@@ -53,7 +57,9 @@ public class ValidationCoordinator {
             }
             results.add(rowCountValidator.validate(table, targetSchema));
             results.addAll(validateUniqueKeys(table, targetSchema));
-            results.addAll(validateForeignKeys(table, targetSchema));
+            if (!skipForeignKeys) {
+                results.addAll(validateForeignKeys(table, targetSchema));
+            }
             if (checksumValidator != null) {
                 results.add(checksumValidator.validate(table, targetSchema));
             }
