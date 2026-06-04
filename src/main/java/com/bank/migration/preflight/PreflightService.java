@@ -1,5 +1,6 @@
 package com.bank.migration.preflight;
 
+import com.bank.migration.config.MigrationMode;
 import com.bank.migration.identifier.IdentifierRenderer;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,10 +27,16 @@ public class PreflightService {
     }
 
     public List<PreflightCheck> run(String targetSchema, boolean cleanLoad) {
+        return run(targetSchema, cleanLoad, MigrationMode.FULL);
+    }
+
+    public List<PreflightCheck> run(String targetSchema, boolean cleanLoad, MigrationMode mode) {
         List<PreflightCheck> checks = new ArrayList<>();
         checks.add(safeCheck("source-connectivity", this::checkSourceConnectivity));
         checks.add(safeCheck("target-connectivity", this::checkTargetConnectivity));
-        checks.add(safeCheck("target-schema-empty", () -> checkTargetSchemaEmpty(targetSchema, cleanLoad)));
+        if (mode == MigrationMode.FULL) {
+            checks.add(safeCheck("target-schema-empty", () -> checkTargetSchemaEmpty(targetSchema, cleanLoad)));
+        }
         return checks;
     }
 

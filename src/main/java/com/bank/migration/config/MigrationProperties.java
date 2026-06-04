@@ -22,7 +22,9 @@ public record MigrationProperties(
     IdentifierMappingPolicy identifierPolicy,
     @Valid Excluded excluded,
     @Valid ManifestCacheProperties manifestCache,
-    UnsupportedTypePolicy unsupportedTypePolicy
+    UnsupportedTypePolicy unsupportedTypePolicy,
+    MigrationMode mode,
+    @Valid DataOnly dataOnly
 ) {
     @org.springframework.boot.context.properties.bind.ConstructorBinding
     public MigrationProperties {
@@ -34,6 +36,12 @@ public record MigrationProperties(
         }
         if (unsupportedTypePolicy == null) {
             unsupportedTypePolicy = UnsupportedTypePolicy.FAIL;
+        }
+        if (mode == null) {
+            mode = MigrationMode.FULL;
+        }
+        if (dataOnly == null) {
+            dataOnly = new DataOnly(TargetDataPolicy.REQUIRE_EMPTY, DataOnlyForeignKeyHandling.DISABLE_REENABLE);
         }
     }
 
@@ -47,7 +55,35 @@ public record MigrationProperties(
         Excluded excluded,
         ManifestCacheProperties manifestCache
     ) {
-        this(source, target, cleanLoad, batch, reports, identifierPolicy, excluded, manifestCache, UnsupportedTypePolicy.FAIL);
+        this(source, target, cleanLoad, batch, reports, identifierPolicy, excluded, manifestCache, UnsupportedTypePolicy.FAIL, MigrationMode.FULL, new DataOnly(TargetDataPolicy.REQUIRE_EMPTY, DataOnlyForeignKeyHandling.DISABLE_REENABLE));
+    }
+
+    public MigrationProperties(
+        Database source,
+        Database target,
+        boolean cleanLoad,
+        Batch batch,
+        Reports reports,
+        IdentifierMappingPolicy identifierPolicy,
+        Excluded excluded,
+        ManifestCacheProperties manifestCache,
+        UnsupportedTypePolicy unsupportedTypePolicy
+    ) {
+        this(source, target, cleanLoad, batch, reports, identifierPolicy, excluded, manifestCache, unsupportedTypePolicy, MigrationMode.FULL, new DataOnly(TargetDataPolicy.REQUIRE_EMPTY, DataOnlyForeignKeyHandling.DISABLE_REENABLE));
+    }
+
+    public record DataOnly(
+        TargetDataPolicy targetDataPolicy,
+        DataOnlyForeignKeyHandling foreignKeyHandling
+    ) {
+        public DataOnly {
+            if (targetDataPolicy == null) {
+                targetDataPolicy = TargetDataPolicy.REQUIRE_EMPTY;
+            }
+            if (foreignKeyHandling == null) {
+                foreignKeyHandling = DataOnlyForeignKeyHandling.DISABLE_REENABLE;
+            }
+        }
     }
 
     public record Database(

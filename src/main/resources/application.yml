@@ -13,6 +13,10 @@ migration:
     schema: ${MIGRATION_TARGET_SCHEMA}
   clean-load: ${MIGRATION_CLEAN_LOAD:true}
   unsupported-type-policy: ${MIGRATION_UNSUPPORTED_TYPE_POLICY:FAIL}
+  mode: ${MIGRATION_MODE:FULL}
+  data-only:
+    target-data-policy: ${MIGRATION_DATA_ONLY_TARGET_DATA_POLICY:REQUIRE_EMPTY}
+    foreign-key-handling: ${MIGRATION_DATA_ONLY_FOREIGN_KEY_HANDLING:DISABLE_REENABLE}
   batch:
     chunk-size: ${MIGRATION_BATCH_CHUNK_SIZE:5000}
     fetch-size: ${MIGRATION_BATCH_FETCH_SIZE:5000}

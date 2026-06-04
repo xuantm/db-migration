@@ -95,6 +95,12 @@ public class ReportWriter {
         builder.append("<!doctype html><html><body>");
         builder.append("<h1>Migration Report ").append(escapeHtml(report.runId())).append("</h1>");
         builder.append("<p>Status: ").append(escapeHtml(report.status())).append("</p>");
+        builder.append("<p>Mode: ").append(escapeHtml(report.mode())).append("</p>");
+        if (!report.skippedPhases().isEmpty()) {
+            builder.append("<h2>Skipped Phases</h2><ul>");
+            report.skippedPhases().forEach(phase -> builder.append("<li>").append(escapeHtml(phase)).append("</li>"));
+            builder.append("</ul>");
+        }
         
         if (!report.chunkStrategies().isEmpty()) {
             builder.append("<h2>Migration Strategies</h2>");

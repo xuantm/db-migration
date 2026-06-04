@@ -65,7 +65,7 @@ class MigrationOrchestratorTest {
             null,
             null
         );
-        when(preflightService.run("bank_core", true))
+        when(preflightService.run(eq("bank_core"), eq(true), any()))
             .thenReturn(List.of(new PreflightCheck("target-schema-empty", false, "contains business rows")));
 
         MigrationOrchestrator orchestrator = orchestrator();
@@ -94,7 +94,7 @@ class MigrationOrchestratorTest {
             "run-123", "BANK_CORE", List.of(), List.of()
         );
 
-        when(preflightService.run("bank_core", true)).thenReturn(List.of(new PreflightCheck("target-schema-empty", true, "ok")));
+        when(preflightService.run(eq("bank_core"), eq(true), any())).thenReturn(List.of(new PreflightCheck("target-schema-empty", true, "ok")));
         when(scanner.scan(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq("BANK_CORE"))).thenReturn(manifest);
 
         com.bank.migration.readiness.ReadinessFinding blockingFinding = new com.bank.migration.readiness.ReadinessFinding(
@@ -150,7 +150,7 @@ class MigrationOrchestratorTest {
             List.of()
         );
 
-        when(preflightService.run("bank_core", true)).thenReturn(List.of(new PreflightCheck("target-schema-empty", true, "ok")));
+        when(preflightService.run(eq("bank_core"), eq(true), any())).thenReturn(List.of(new PreflightCheck("target-schema-empty", true, "ok")));
         when(scanner.scan(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq("BANK_CORE"))).thenReturn(manifest);
 
         com.bank.migration.types.OracleToGaussTypeMapper typeMapper = new com.bank.migration.types.OracleToGaussTypeMapper(policy);
@@ -215,7 +215,7 @@ class MigrationOrchestratorTest {
             List.of()
         );
 
-        when(preflightService.run("bank_core", true)).thenReturn(List.of(new PreflightCheck("target-schema-empty", true, "ok")));
+        when(preflightService.run(eq("bank_core"), eq(true), any())).thenReturn(List.of(new PreflightCheck("target-schema-empty", true, "ok")));
         when(scanner.scan(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.eq("BANK_CORE"))).thenReturn(manifest);
 
         com.bank.migration.types.OracleToGaussTypeMapper typeMapper = new com.bank.migration.types.OracleToGaussTypeMapper(policy);
@@ -267,7 +267,7 @@ class MigrationOrchestratorTest {
             "run-123", "BANK_CORE", List.of(), List.of()
         );
 
-        when(preflightService.run("bank_core", true)).thenReturn(List.of(new PreflightCheck("target-schema-empty", true, "ok")));
+        when(preflightService.run(eq("bank_core"), eq(true), any())).thenReturn(List.of(new PreflightCheck("target-schema-empty", true, "ok")));
         when(manifestCacheService.load(props)).thenReturn(java.util.Optional.of(cachedManifest));
         when(readinessEvaluator.evaluate(cachedManifest, props))
             .thenReturn(new com.bank.migration.readiness.ReadinessReport(List.of(), false));
@@ -302,7 +302,7 @@ class MigrationOrchestratorTest {
             "run-123", "BANK_CORE", List.of(), List.of()
         );
 
-        when(preflightService.run("bank_core", true)).thenReturn(List.of(new PreflightCheck("target-schema-empty", true, "ok")));
+        when(preflightService.run(eq("bank_core"), eq(true), any())).thenReturn(List.of(new PreflightCheck("target-schema-empty", true, "ok")));
         when(manifestCacheService.load(props)).thenReturn(java.util.Optional.empty());
         when(scanner.scan(org.mockito.ArgumentMatchers.anyString(), eq("BANK_CORE"))).thenReturn(scannedManifest);
         when(readinessEvaluator.evaluate(any(), any())).thenReturn(new com.bank.migration.readiness.ReadinessReport(List.of(), false));

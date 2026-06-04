@@ -9,6 +9,8 @@ import java.util.List;
 public record MigrationReport(
     String runId,
     String status,
+    String mode,
+    List<String> skippedPhases,
     Instant startedAt,
     Instant completedAt,
     List<ValidationResult> validations,
@@ -25,7 +27,7 @@ public record MigrationReport(
         List<ValidationResult> validations,
         List<ErrorRecord> errors
     ) {
-        this(runId, status, startedAt, completedAt, validations, errors, List.of(), List.of(), List.of());
+        this(runId, status, "FULL", List.of(), startedAt, completedAt, validations, errors, List.of(), List.of(), List.of());
     }
 
     public MigrationReport(
@@ -37,7 +39,7 @@ public record MigrationReport(
         List<ErrorRecord> errors,
         List<ReadinessFinding> readinessFindings
     ) {
-        this(runId, status, startedAt, completedAt, validations, errors, readinessFindings, List.of(), List.of());
+        this(runId, status, "FULL", List.of(), startedAt, completedAt, validations, errors, readinessFindings, List.of(), List.of());
     }
 
     public MigrationReport(
@@ -50,10 +52,26 @@ public record MigrationReport(
         List<ReadinessFinding> readinessFindings,
         List<ExcludedObjectDecision> excludedObjectDecisions
     ) {
-        this(runId, status, startedAt, completedAt, validations, errors, readinessFindings, excludedObjectDecisions, List.of());
+        this(runId, status, "FULL", List.of(), startedAt, completedAt, validations, errors, readinessFindings, excludedObjectDecisions, List.of());
+    }
+
+    public MigrationReport(
+        String runId,
+        String status,
+        Instant startedAt,
+        Instant completedAt,
+        List<ValidationResult> validations,
+        List<ErrorRecord> errors,
+        List<ReadinessFinding> readinessFindings,
+        List<ExcludedObjectDecision> excludedObjectDecisions,
+        List<ChunkStrategyRecord> chunkStrategies
+    ) {
+        this(runId, status, "FULL", List.of(), startedAt, completedAt, validations, errors, readinessFindings, excludedObjectDecisions, chunkStrategies);
     }
 
     public MigrationReport {
+        mode = mode == null || mode.isBlank() ? "FULL" : mode;
+        skippedPhases = List.copyOf(skippedPhases == null ? List.of() : skippedPhases);
         validations = List.copyOf(validations == null ? List.of() : validations);
         errors = List.copyOf(errors == null ? List.of() : errors);
         readinessFindings = List.copyOf(readinessFindings == null ? List.of() : readinessFindings);

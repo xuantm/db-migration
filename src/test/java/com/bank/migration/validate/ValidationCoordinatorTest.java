@@ -64,4 +64,43 @@ class ValidationCoordinatorTest {
             assertThat(result.message()).isEqualTo("orphans=2");
         });
     }
+
+    @Test
+    void skipsForeignKeysWhenRequested() {
+        KeyMetadata primaryKey = new KeyMetadata("PK_ACCOUNT", "PRIMARY_KEY", List.of("ID"), null, null);
+        KeyMetadata foreignKey = new KeyMetadata("FK_ACCOUNT_CUSTOMER", "FOREIGN_KEY", List.of("CUSTOMER_ID"), "CUSTOMER", List.of("ID"));
+        TableMetadata table = new TableMetadata(
+            "BANK_CORE",
+            "ACCOUNT",
+            ObjectStatus.READY,
+            List.of(),
+            List.of(primaryKey, foreignKey),
+            List.of()
+        );
+        MigrationManifest manifest = new MigrationManifest("run-001", "BANK_CORE", List.of(table), List.of());
+        ValidationResult rowCount = new ValidationResult("row-count", ValidationStatus.PASS, "ACCOUNT", "source=1 target=1");
+        when(rowCountValidator.validate(table, "bank_core")).thenReturn(rowCount);
+        when(duplicateKeyValidator.duplicateSql("bank_core", table, primaryKey))
+            .thenReturn("select id, count(*) from bank_core.account where id is not null group by id having count(*) > 1");
+        when(targetJdbc.queryForObject(
+            "select count(*) from (select id, count(*) from bank_core.account where id is not null group by id having count(*) > 1) duplicate_groups",
+            Long.class
+        )).thenReturn(0L);
+
+        List<ValidationResult> results = new ValidationCoordinator(
+            rowCountValidator,
+            duplicateKeyValidator,
+            foreignKeyValidator,
+            targetJdbc
+        ).validate(manifest, "bank_core", true);
+
+        assertThat(results).contains(rowCount);
+        assertThat(results).anySatisfy(result -> {
+            assertThat(result.name()).isEqualTo("duplicate-key");
+            assertThat(result.status()).isEqualTo(ValidationStatus.PASS);
+        });
+        assertThat(results).noneSatisfy(result -> {
+            assertThat(result.name()).isEqualTo("foreign-key-orphans");
+        });
+    }
 }

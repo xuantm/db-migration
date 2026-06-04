@@ -293,6 +293,69 @@ class MigrationPropertiesTest {
         assertThat(props.manifestCache().failIfCacheMissing()).isTrue();
     }
 
+    private MapConfigurationPropertySource basePropertySource() {
+        return new MapConfigurationPropertySource(Map.ofEntries(
+            Map.entry("migration.source.jdbc-url", "jdbc:oracle:thin:@//oracle-host:1521/BANK"),
+            Map.entry("migration.source.username", "bank_src"),
+            Map.entry("migration.source.password", "secret"),
+            Map.entry("migration.source.driver-class-name", "oracle.jdbc.OracleDriver"),
+            Map.entry("migration.source.schema", "BANK_CORE"),
+            Map.entry("migration.target.jdbc-url", "jdbc:postgresql://gauss-host:5432/bank"),
+            Map.entry("migration.target.username", "bank_dst"),
+            Map.entry("migration.target.password", "secret"),
+            Map.entry("migration.target.driver-class-name", "org.postgresql.Driver"),
+            Map.entry("migration.target.schema", "BANK_CORE"),
+            Map.entry("migration.clean-load", "true"),
+            Map.entry("migration.batch.chunk-size", "5000"),
+            Map.entry("migration.batch.fetch-size", "5000"),
+            Map.entry("migration.batch.max-parallel-tables", "2"),
+            Map.entry("migration.reports.output-dir", "build/migration-reports")
+        ));
+    }
+
+    @Test
+    void defaultsToFullMigrationModeAndRequireEmptyDataOnlyPolicy() {
+        MapConfigurationPropertySource source = basePropertySource();
+
+        MigrationProperties props = new Binder(source)
+            .bind("migration", Bindable.of(MigrationProperties.class))
+            .orElseThrow(() -> new IllegalStateException("Migration properties did not bind"));
+
+        assertThat(props.mode()).isEqualTo(MigrationMode.FULL);
+        assertThat(props.dataOnly().targetDataPolicy()).isEqualTo(TargetDataPolicy.REQUIRE_EMPTY);
+        assertThat(props.dataOnly().foreignKeyHandling()).isEqualTo(DataOnlyForeignKeyHandling.DISABLE_REENABLE);
+    }
+
+    @Test
+    void bindsDataOnlyMigrationMode() {
+        MapConfigurationPropertySource source = basePropertySource();
+        source.put("migration.mode", "DATA_ONLY");
+        source.put("migration.data-only.target-data-policy", "REQUIRE_EMPTY");
+        source.put("migration.data-only.foreign-key-handling", "ORDER_ONLY");
+
+        MigrationProperties props = new Binder(source)
+            .bind("migration", Bindable.of(MigrationProperties.class))
+            .orElseThrow(() -> new IllegalStateException("Migration properties did not bind"));
+
+        assertThat(props.mode()).isEqualTo(MigrationMode.DATA_ONLY);
+        assertThat(props.dataOnly().targetDataPolicy()).isEqualTo(TargetDataPolicy.REQUIRE_EMPTY);
+        assertThat(props.dataOnly().foreignKeyHandling()).isEqualTo(DataOnlyForeignKeyHandling.ORDER_ONLY);
+    }
+
+    @Test
+    void bindsTruncateExistingPolicy() {
+        MapConfigurationPropertySource source = basePropertySource();
+        source.put("migration.mode", "DATA_ONLY");
+        source.put("migration.data-only.target-data-policy", "TRUNCATE_EXISTING");
+
+        MigrationProperties props = new Binder(source)
+            .bind("migration", Bindable.of(MigrationProperties.class))
+            .orElseThrow(() -> new IllegalStateException("Migration properties did not bind"));
+
+        assertThat(props.mode()).isEqualTo(MigrationMode.DATA_ONLY);
+        assertThat(props.dataOnly().targetDataPolicy()).isEqualTo(TargetDataPolicy.TRUNCATE_EXISTING);
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(MigrationProperties.class)
     static class TestConfig {

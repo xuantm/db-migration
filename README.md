@@ -63,6 +63,56 @@ Optional:
 - `MIGRATION_MANIFEST_CACHE_SAVE_AFTER_SCAN`, default `false`
 - `MIGRATION_MANIFEST_CACHE_CACHE_KEY`, default `DEFAULT_KEY`
 - `MIGRATION_MANIFEST_CACHE_FAIL_IF_CACHE_MISSING`, default `false`
+- `MIGRATION_MODE`, default `FULL`. Set to `DATA_ONLY` for data-only mode.
+- `MIGRATION_DATA_ONLY_TARGET_DATA_POLICY`, default `REQUIRE_EMPTY`. Options: `REQUIRE_EMPTY`, `TRUNCATE_EXISTING`.
+- `MIGRATION_DATA_ONLY_FOREIGN_KEY_HANDLING`, default `DISABLE_REENABLE`. Options: `DISABLE_REENABLE`, `ORDER_ONLY`, `DBA_MANAGED`.
+
+## Data-Only Mode
+
+Use data-only mode when GaussDB/openGauss DDL has already been created by DBA-approved scripts and the migration tool must only copy Oracle table data.
+
+```yaml
+migration:
+  mode: DATA_ONLY
+  clean-load: true
+  data-only:
+    target-data-policy: REQUIRE_EMPTY # Options: REQUIRE_EMPTY, TRUNCATE_EXISTING
+    foreign-key-handling: DISABLE_REENABLE
+```
+
+In `DATA_ONLY` mode the tool skips:
+
+- target schema cleanup
+- table creation
+- primary key, unique, index, and foreign key DDL
+- view creation
+
+The tool still runs:
+
+- source metadata scan
+- exclusions
+- readiness checks for data-copy risks
+- target table/column compatibility checks
+- chunked data copy
+- row-count validation
+- duplicate-key validation
+- source-manifest FK validation
+- target-catalog FK validation
+- audit and filesystem reports
+
+### Foreign Key Handling in Data-Only Mode
+
+`DISABLE_REENABLE` executes `ALTER TABLE <schema>.<table> DISABLE TRIGGER ALL` before loading included tables and `ALTER TABLE <schema>.<table> ENABLE TRIGGER ALL` after loading. This usually requires table owner, DBA, or elevated privileges. The tool always attempts to re-enable triggers in a `finally` block.
+
+If the migration user cannot disable triggers, use:
+
+```yaml
+migration:
+  data-only:
+    foreign-key-handling: ORDER_ONLY
+```
+
+`ORDER_ONLY` loads parent tables before child tables based on Oracle FK metadata and fails on circular FK dependencies. Use `DBA_MANAGED` only when the DBA disables and re-enables FK triggers outside the tool. All modes run target FK orphan validation after data load.
 
 ## Run
 

@@ -8,6 +8,11 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+/**
+ * Stale source-manifest style foreign key validator.
+ * Assumes the parent table exists in the targetSchema and enforces MATCH SIMPLE semantics.
+ * Bypassed in DATA_ONLY mode in favor of TargetForeignKeyValidator to support external/retained parents.
+ */
 @Service
 public class ForeignKeyValidator {
     private final IdentifierRenderer targetRenderer;

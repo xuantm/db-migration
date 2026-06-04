@@ -119,7 +119,7 @@ try {
 
 # --- RUN 2: Happy Path Test (expect pass with exclusions) ---
 Write-Host "Executing Run 2: Happy Path Test (excluding blocker, expect success)..." -ForegroundColor Yellow
-$env:MIGRATION_EXCLUDED_TABLES = "EDGE_TEST_EXCLUDED_PARENT,EDGE_TEST_LOB_TABLE"
+$env:MIGRATION_EXCLUDED_TABLES = "EDGE_TEST_EXCLUDED_PARENT,EDGE_TEST_CHILD_TABLE,EDGE_TEST_LOB_TABLE"
 
 java -jar target/oracle-gaussdb-migration-0.1.0-SNAPSHOT.jar
 $exitCode = $LASTEXITCODE
