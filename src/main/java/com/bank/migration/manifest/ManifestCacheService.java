@@ -22,6 +22,7 @@ public class ManifestCacheService {
     private final String toolVersion;
     private final String scannerVersion;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ManifestCacheService(ManifestCacheStore store, ObjectMapper objectMapper) {
         this(store, objectMapper, resolveToolVersion(), OracleMetadataScanner.SCANNER_CONTRACT_VERSION);
     }

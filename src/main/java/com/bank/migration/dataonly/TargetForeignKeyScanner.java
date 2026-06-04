@@ -31,19 +31,19 @@ public class TargetForeignKeyScanner {
               parent.relname as parent_table,
               child_att.attname as child_column,
               parent_att.attname as parent_column,
-              ord.n as column_position,
+              i.n as column_position,
               con.confmatchtype
             from pg_catalog.pg_constraint con
             join pg_catalog.pg_class child on child.oid = con.conrelid
             join pg_catalog.pg_namespace child_ns on child_ns.oid = child.relnamespace
             join pg_catalog.pg_class parent on parent.oid = con.confrelid
             join pg_catalog.pg_namespace parent_ns on parent_ns.oid = parent.relnamespace
-            join unnest(con.conkey, con.confkey) with ordinality as ord(child_attnum, parent_attnum, n) on true
-            join pg_catalog.pg_attribute child_att on child_att.attrelid = child.oid and child_att.attnum = ord.child_attnum
-            join pg_catalog.pg_attribute parent_att on parent_att.attrelid = parent.oid and parent_att.attnum = ord.parent_attnum
+            join generate_series(1, array_upper(con.conkey, 1)) as i(n) on true
+            join pg_catalog.pg_attribute child_att on child_att.attrelid = child.oid and child_att.attnum = con.conkey[i.n]
+            join pg_catalog.pg_attribute parent_att on parent_att.attrelid = parent.oid and parent_att.attnum = con.confkey[i.n]
             where con.contype = 'f'
               and child_ns.nspname = ?
-            order by con.conname, child.relname, ord.n
+            order by con.conname, child.relname, i.n
             """;
 
         String physicalSchema = targetRenderer.physicalName(targetSchema);
