@@ -342,6 +342,20 @@ class MigrationPropertiesTest {
         assertThat(props.dataOnly().foreignKeyHandling()).isEqualTo(DataOnlyForeignKeyHandling.ORDER_ONLY);
     }
 
+    @Test
+    void bindsTruncateExistingPolicy() {
+        MapConfigurationPropertySource source = basePropertySource();
+        source.put("migration.mode", "DATA_ONLY");
+        source.put("migration.data-only.target-data-policy", "TRUNCATE_EXISTING");
+
+        MigrationProperties props = new Binder(source)
+            .bind("migration", Bindable.of(MigrationProperties.class))
+            .orElseThrow(() -> new IllegalStateException("Migration properties did not bind"));
+
+        assertThat(props.mode()).isEqualTo(MigrationMode.DATA_ONLY);
+        assertThat(props.dataOnly().targetDataPolicy()).isEqualTo(TargetDataPolicy.TRUNCATE_EXISTING);
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(MigrationProperties.class)
     static class TestConfig {

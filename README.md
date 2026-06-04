@@ -64,7 +64,7 @@ Optional:
 - `MIGRATION_MANIFEST_CACHE_CACHE_KEY`, default `DEFAULT_KEY`
 - `MIGRATION_MANIFEST_CACHE_FAIL_IF_CACHE_MISSING`, default `false`
 - `MIGRATION_MODE`, default `FULL`. Set to `DATA_ONLY` for data-only mode.
-- `MIGRATION_DATA_ONLY_TARGET_DATA_POLICY`, default `REQUIRE_EMPTY`
+- `MIGRATION_DATA_ONLY_TARGET_DATA_POLICY`, default `REQUIRE_EMPTY`. Options: `REQUIRE_EMPTY`, `TRUNCATE_EXISTING`.
 - `MIGRATION_DATA_ONLY_FOREIGN_KEY_HANDLING`, default `DISABLE_REENABLE`. Options: `DISABLE_REENABLE`, `ORDER_ONLY`, `DBA_MANAGED`.
 
 ## Data-Only Mode
@@ -76,7 +76,7 @@ migration:
   mode: DATA_ONLY
   clean-load: true
   data-only:
-    target-data-policy: REQUIRE_EMPTY
+    target-data-policy: REQUIRE_EMPTY # Options: REQUIRE_EMPTY, TRUNCATE_EXISTING
     foreign-key-handling: DISABLE_REENABLE
 ```
 

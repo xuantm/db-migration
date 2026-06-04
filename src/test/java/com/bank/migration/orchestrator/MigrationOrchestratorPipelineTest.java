@@ -622,7 +622,7 @@ class MigrationOrchestratorPipelineTest {
         inOrder.verify(phaseStatusStore).finishPhase(anyString(), eq("data-load"), any(), eq("FAILED"), any(), eq("copy failed"));
     }
 
-    private MigrationProperties dataOnlyProperties(DataOnlyForeignKeyHandling fkHandling) {
+    private MigrationProperties dataOnlyProperties(TargetDataPolicy targetDataPolicy, DataOnlyForeignKeyHandling fkHandling) {
         return new MigrationProperties(
             new MigrationProperties.Database("src", "u", "p", "driver", "BANK_CORE"),
             new MigrationProperties.Database("dst", "u", "p", "driver", "bank_core"),
@@ -634,8 +634,12 @@ class MigrationOrchestratorPipelineTest {
             null,
             com.bank.migration.types.UnsupportedTypePolicy.FAIL,
             MigrationMode.DATA_ONLY,
-            new MigrationProperties.DataOnly(TargetDataPolicy.REQUIRE_EMPTY, fkHandling)
+            new MigrationProperties.DataOnly(targetDataPolicy, fkHandling)
         );
+    }
+
+    private MigrationProperties dataOnlyProperties(DataOnlyForeignKeyHandling fkHandling) {
+        return dataOnlyProperties(TargetDataPolicy.REQUIRE_EMPTY, fkHandling);
     }
 
     private static TableMetadata table(String name) {
@@ -807,5 +811,39 @@ class MigrationOrchestratorPipelineTest {
         assertThat(report.errors().get(0).message())
             .contains("disable SQL failed")
             .contains("reenable failed");
+    }
+
+    @Test
+    void dataOnlyModeExecutesTruncateUnderTruncatePolicy() throws Exception {
+        MigrationProperties props = dataOnlyProperties(TargetDataPolicy.TRUNCATE_EXISTING, DataOnlyForeignKeyHandling.DISABLE_REENABLE);
+
+        TableMetadata table = table("ACCOUNT");
+        MigrationManifest manifest = new MigrationManifest("run-001", "BANK_CORE", List.of(table), List.of());
+        ChunkPlan chunk = new ChunkPlan("ACCOUNT-000001", "ID", "ID >= 1 and ID <= 10", "PRIMARY_KEY_RANGE");
+
+        ForeignKeyTriggerManager.DisableSnapshot snapshot = new ForeignKeyTriggerManager.DisableSnapshot();
+
+        when(preflightService.run(eq("bank_core"), eq(true), any())).thenReturn(List.of(
+            new PreflightCheck("source-connectivity", true, "ok"),
+            new PreflightCheck("target-connectivity", true, "ok")
+        ));
+        when(scanner.scan(any(), eq("BANK_CORE"))).thenReturn(manifest);
+        when(readinessEvaluator.evaluate(any(MigrationManifest.class), eq(props))).thenReturn(new com.bank.migration.readiness.ReadinessReport(List.of(), false));
+        when(dataOnlyTargetReadinessService.check(any(MigrationManifest.class), eq("bank_core"), eq(TargetDataPolicy.TRUNCATE_EXISTING)))
+            .thenReturn(List.of(new PreflightCheck("data-only-target-table-ACCOUNT", true, "ok")));
+        when(tableLoadOrderPlanner.order(any(MigrationManifest.class), eq(DataOnlyForeignKeyHandling.DISABLE_REENABLE))).thenReturn(List.of(table));
+        when(foreignKeyTriggerManager.disableAll("bank_core", List.of(table))).thenReturn(snapshot);
+        when(chunkBoundsService.bounds(table)).thenReturn(new ChunkBounds(1L, 10L));
+        when(chunkPlanner.plan(table, 1L, 10L, 5000)).thenReturn(List.of(chunk));
+        when(dataCopyService.copyChunk(table, "bank_core", chunk)).thenReturn(new com.bank.migration.load.TableCopyResult(10, 10));
+        when(validationCoordinator.validate(any(MigrationManifest.class), eq("bank_core"), eq(true))).thenReturn(List.of());
+        when(targetForeignKeyValidator.validate(eq("bank_core"), eq(Set.of("ACCOUNT")))).thenReturn(List.of());
+
+        MigrationOrchestrator orchestrator = dataOnlyOrchestrator();
+
+        orchestrator.run(props);
+
+        verify(dataOnlyTargetReadinessService).truncateTables("bank_core", List.of(table));
+        verify(dataCopyService).copyChunk(table, "bank_core", chunk);
     }
 }

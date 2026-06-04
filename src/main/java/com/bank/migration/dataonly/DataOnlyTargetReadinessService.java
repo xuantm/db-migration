@@ -130,4 +130,22 @@ public class DataOnlyTargetReadinessService {
             tableName
         );
     }
+
+    public void truncateTables(String targetSchema, List<TableMetadata> tables) {
+        List<TableMetadata> includedTables = tables.stream()
+            .filter(table -> table.status() != ObjectStatus.EXCLUDED)
+            .toList();
+        if (includedTables.isEmpty()) {
+            return;
+        }
+
+        StringBuilder sql = new StringBuilder("TRUNCATE TABLE ");
+        for (int i = 0; i < includedTables.size(); i++) {
+            if (i > 0) {
+                sql.append(", ");
+            }
+            sql.append(targetRenderer.renderQualifiedName(targetSchema, includedTables.get(i).name()));
+        }
+        targetJdbc.execute(sql.toString());
+    }
 }

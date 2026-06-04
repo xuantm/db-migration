@@ -699,6 +699,9 @@ public class MigrationOrchestrator {
                         throw ex;
                     }
                 }
+                if (properties.dataOnly().targetDataPolicy() == TargetDataPolicy.TRUNCATE_EXISTING) {
+                    dataOnlyTargetReadinessService.truncateTables(targetSchema, orderedTables);
+                }
                 totalTablesLoaded = loadTables(runId, targetSchema, orderedTables, properties, chunkStrategies);
             } catch (Exception ex) {
                 loadFailure = ex;

@@ -171,6 +171,47 @@ class DataOnlyTargetReadinessServiceTest {
         });
     }
 
+    @Test
+    void bypassesEmptinessCheckWhenTruncateExistingPolicyIsSet() {
+        TableMetadata table = table("ACCOUNT", List.of("ID", "BALANCE"));
+        when(targetJdbc.queryForObject(contains("information_schema.tables"), eq(Integer.class), eq("bank_core"), eq("account"))).thenReturn(1);
+        when(targetJdbc.query(anyString(), any(RowMapper.class), eq("bank_core"), eq("account"))).thenReturn(List.of(
+            new DataOnlyTargetColumn("id", false, null, null, null),
+            new DataOnlyTargetColumn("balance", true, null, null, null)
+        ));
+
+        DataOnlyTargetReadinessService service = new DataOnlyTargetReadinessService(targetJdbc, targetRenderer);
+
+        List<PreflightCheck> checks = service.check(
+            new MigrationManifest("run-1", "BANK_CORE", List.of(table), List.of()),
+            "BANK_CORE",
+            TargetDataPolicy.TRUNCATE_EXISTING
+        );
+
+        assertThat(checks).allMatch(PreflightCheck::passed);
+        assertThat(checks).noneMatch(check -> check.name().contains("data-only-target-empty-"));
+    }
+
+    @Test
+    void executesTruncateStatementForIncludedTables() {
+        TableMetadata table1 = table("ACCOUNT", List.of("ID"));
+        TableMetadata table2 = table("TXN", List.of("ID"));
+        TableMetadata excludedTable = new TableMetadata(
+            "BANK_CORE",
+            "LOGS",
+            ObjectStatus.EXCLUDED,
+            List.of(),
+            List.of(),
+            List.of()
+        );
+
+        DataOnlyTargetReadinessService service = new DataOnlyTargetReadinessService(targetJdbc, targetRenderer);
+
+        service.truncateTables("BANK_CORE", List.of(table1, table2, excludedTable));
+
+        org.mockito.Mockito.verify(targetJdbc).execute("TRUNCATE TABLE bank_core.account, bank_core.txn");
+    }
+
     private static TableMetadata table(String name, List<String> columns) {
         return new TableMetadata(
             "BANK_CORE",
