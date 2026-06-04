@@ -46,5 +46,40 @@ public class AuditSchemaService {
               created_at timestamp not null
             )
             """);
+        jdbc.execute("""
+            create table if not exists migration_audit.manifest_cache (
+              cache_key varchar(200) primary key,
+              source_schema varchar(200) not null,
+              manifest_version varchar(50) not null,
+              tool_version varchar(50) not null,
+              scanner_version varchar(50) not null,
+              config_hash varchar(64) not null,
+              manifest_checksum varchar(64) not null,
+              manifest_json text not null,
+              created_at timestamp not null
+            )
+            """);
+        jdbc.execute("""
+            create table if not exists migration_audit.runs (
+              run_id varchar(80) primary key,
+              source_schema varchar(200) not null,
+              target_schema varchar(200) not null,
+              started_at timestamp not null,
+              finished_at timestamp,
+              final_status varchar(30)
+            )
+            """);
+        jdbc.execute("""
+            create table if not exists migration_audit.phase_status (
+              run_id varchar(80) not null,
+              phase_name varchar(100) not null,
+              status varchar(30) not null,
+              started_at timestamp not null,
+              finished_at timestamp,
+              rows_processed bigint,
+              message text,
+              primary key (run_id, phase_name)
+            )
+            """);
     }
 }

@@ -51,10 +51,23 @@ public class TableMigrationTasklet {
     }
 
     public void run() {
+        String limitStr = System.getenv("MIGRATION_ROW_LIMIT");
+        long rowLimit = Long.MAX_VALUE;
+        if (limitStr != null && !limitStr.isBlank()) {
+            try {
+                rowLimit = Long.parseLong(limitStr.trim());
+            } catch (NumberFormatException ignored) {}
+        }
+
+        long totalRowsRead = 0;
         for (ChunkPlan chunk : chunks) {
+            if (totalRowsRead >= rowLimit) {
+                break;
+            }
             Instant started = Instant.now();
             try {
                 TableCopyResult result = copyService.copyChunk(table, targetSchema, chunk);
+                totalRowsRead += result.rowsRead();
                 checkpointStore.save(new CheckpointRecord(
                     runId,
                     table.schema(),

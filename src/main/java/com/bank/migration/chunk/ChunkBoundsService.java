@@ -15,21 +15,8 @@ public class ChunkBoundsService {
     }
 
     public ChunkBounds bounds(TableMetadata table) {
-        String primaryKeyColumn = table.keys().stream()
-            .filter(key -> "PRIMARY_KEY".equalsIgnoreCase(key.type()))
-            .filter(key -> key.columns().size() == 1)
-            .map(KeyMetadata::columns)
-            .map(columns -> columns.getFirst())
-            .findFirst()
-            .orElse(null);
-
-        if (primaryKeyColumn == null) {
-            Long rowCount = sourceJdbc.queryForObject("select count(*) from " + table.schema() + "." + table.name(), Long.class);
-            return new ChunkBounds(1L, rowCount == null ? 0L : rowCount);
-        }
-
-        Long min = sourceJdbc.queryForObject("select min(" + primaryKeyColumn + ") from " + table.schema() + "." + table.name(), Long.class);
-        Long max = sourceJdbc.queryForObject("select max(" + primaryKeyColumn + ") from " + table.schema() + "." + table.name(), Long.class);
-        return new ChunkBounds(min == null ? 1L : min, max == null ? 0L : max);
+        ChunkStrategyType strategyType = ChunkStrategySelector.select(table);
+        ChunkStrategy strategy = ChunkStrategySelector.getStrategy(strategyType);
+        return strategy.getBounds(sourceJdbc, table);
     }
 }

@@ -3,14 +3,19 @@ package com.bank.migration.validate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.bank.migration.dialect.GaussDialect;
 import com.bank.migration.domain.KeyMetadata;
 import com.bank.migration.domain.ObjectStatus;
 import com.bank.migration.domain.TableMetadata;
+import com.bank.migration.identifier.IdentifierMappingPolicy;
+import com.bank.migration.identifier.IdentifierRenderer;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class ForeignKeyValidatorTest {
-    private final ForeignKeyValidator validator = new ForeignKeyValidator();
+    private final ForeignKeyValidator validator = new ForeignKeyValidator(
+        new IdentifierRenderer(new GaussDialect(IdentifierMappingPolicy.QUOTE))
+    );
 
     @Test
     void buildsOrphanSqlThatIgnoresNullableChildKeys() {

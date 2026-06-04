@@ -3,6 +3,7 @@ package com.bank.migration.chunk;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
+import com.bank.migration.domain.ColumnMetadata;
 import com.bank.migration.domain.KeyMetadata;
 import com.bank.migration.domain.ObjectStatus;
 import com.bank.migration.domain.TableMetadata;
@@ -23,7 +24,7 @@ class ChunkBoundsServiceTest {
             "BANK_CORE",
             "ACCOUNT",
             ObjectStatus.READY,
-            List.of(),
+            List.of(new ColumnMetadata("ID", "NUMBER", 18, 0, false, null)),
             List.of(new KeyMetadata("PK_ACCOUNT", "PRIMARY_KEY", List.of("ID"), null, null)),
             List.of()
         );
