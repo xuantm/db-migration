@@ -12,12 +12,24 @@ migration:
     driver-class-name: ${MIGRATION_TARGET_DRIVER_CLASS_NAME:org.postgresql.Driver}
     schema: ${MIGRATION_TARGET_SCHEMA}
   clean-load: ${MIGRATION_CLEAN_LOAD:true}
+  unsupported-type-policy: ${MIGRATION_UNSUPPORTED_TYPE_POLICY:FAIL}
   batch:
     chunk-size: ${MIGRATION_BATCH_CHUNK_SIZE:5000}
     fetch-size: ${MIGRATION_BATCH_FETCH_SIZE:5000}
     max-parallel-tables: ${MIGRATION_BATCH_MAX_PARALLEL_TABLES:2}
   reports:
     output-dir: ${MIGRATION_REPORT_OUTPUT_DIR:build/migration-reports}
+  excluded:
+    tables: ${MIGRATION_EXCLUDED_TABLES:}
+    views: ${MIGRATION_EXCLUDED_VIEWS:}
+    sequences: ${MIGRATION_EXCLUDED_SEQUENCES:}
+  manifest-cache:
+    enabled: ${MIGRATION_MANIFEST_CACHE_ENABLED:false}
+    load-from-cache: ${MIGRATION_MANIFEST_CACHE_LOAD:false}
+    save-after-scan: ${MIGRATION_MANIFEST_CACHE_SAVE:false}
+    cache-key: ${MIGRATION_MANIFEST_CACHE_KEY:DEFAULT_KEY}
+    fail-if-cache-missing: ${MIGRATION_MANIFEST_CACHE_FAIL_MISSING:false}
+
 
 spring:
   batch:

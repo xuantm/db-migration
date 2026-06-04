@@ -1,8 +1,8 @@
 package com.bank.migration.preflight;
 
+import com.bank.migration.identifier.IdentifierRenderer;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.function.Supplier;
 import org.springframework.dao.DataAccessException;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -13,13 +13,16 @@ import org.springframework.stereotype.Service;
 public class PreflightService {
     private final JdbcTemplate sourceJdbc;
     private final JdbcTemplate targetJdbc;
+    private final IdentifierRenderer targetRenderer;
 
     public PreflightService(
         @Qualifier("sourceJdbc") JdbcTemplate sourceJdbc,
-        @Qualifier("targetJdbc") JdbcTemplate targetJdbc
+        @Qualifier("targetJdbc") JdbcTemplate targetJdbc,
+        @Qualifier("targetIdentifierRenderer") IdentifierRenderer targetRenderer
     ) {
         this.sourceJdbc = sourceJdbc;
         this.targetJdbc = targetJdbc;
+        this.targetRenderer = targetRenderer;
     }
 
     public List<PreflightCheck> run(String targetSchema, boolean cleanLoad) {
@@ -57,7 +60,7 @@ public class PreflightService {
     }
 
     private PreflightCheck checkTargetSchemaEmpty(String targetSchema, boolean cleanLoad) {
-        String normalizedSchema = targetSchema.toLowerCase(Locale.ROOT);
+        String normalizedSchema = targetRenderer.physicalName(targetSchema);
         Integer tableCount = targetJdbc.queryForObject(
             "select count(*) from information_schema.tables where table_schema = ?",
             Integer.class,

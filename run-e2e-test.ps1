@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host "1. Packaging migration tool with Maven..." -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
-docker run --rm -v "g:/workspace/db-migration:/usr/src/mymaven" -v "m2-cache:/root/.m2" -w /usr/src/mymaven maven:3.9.6-eclipse-temurin-21 mvn clean package -DskipTests
+& "G:\workspace\db-migration\.maven\apache-maven-3.9.9\bin\mvn.cmd" clean package -DskipTests
 
 # 2. Start database containers
 Write-Host ""
@@ -60,10 +60,23 @@ Write-Host "5. Running Swingbench to populate Oracle sample schema..." -Foregrou
 Write-Host "=============================================" -ForegroundColor Cyan
 docker compose run --rm swingbench -cl -cs //oracle-db:1521/FREEPDB1 -u soe -p soe -scale 0.001 -create -ts USERS -dba system -dbap OraclePass123
 
+# 5b. Grant view creation privilege and apply edge schema/data on Oracle
+Write-Host ""
+Write-Host "=============================================" -ForegroundColor Cyan
+Write-Host "5b. Applying edge schema and data on Oracle..." -ForegroundColor Cyan
+Write-Host "=============================================" -ForegroundColor Cyan
+
+# Grant privileges using SYSDBA
+"GRANT CREATE VIEW TO soe;" | docker exec -i oracle-db sqlplus sys/OraclePass123@//localhost:1521/FREEPDB1 as sysdba
+
+# Apply the edge schema and data scripts
+Get-Content e2e/sql/oracle-edge-schema.sql | docker exec -i oracle-db sqlplus soe/soe@//localhost:1521/FREEPDB1
+Get-Content e2e/sql/oracle-edge-data.sql | docker exec -i oracle-db sqlplus soe/soe@//localhost:1521/FREEPDB1
+
 # 6. Run the migration tool
 Write-Host ""
 Write-Host "=============================================" -ForegroundColor Cyan
-Write-Host "6. Running migration tool smoke test..." -ForegroundColor Cyan
+Write-Host "6. Running migration tool tests..." -ForegroundColor Cyan
 Write-Host "=============================================" -ForegroundColor Cyan
 
 $env:MIGRATION_SOURCE_JDBC_URL = "jdbc:oracle:thin:@localhost:1521/FREEPDB1"
@@ -84,7 +97,37 @@ $env:MIGRATION_BATCH_FETCH_SIZE = "5000"
 $env:MIGRATION_BATCH_MAX_PARALLEL_TABLES = "2"
 $env:MIGRATION_REPORT_OUTPUT_DIR = "build/migration-reports"
 
+# --- RUN 1: Readiness Blocker Test (expect fail) ---
+Write-Host "Executing Run 1: Blocker Test (BFILE present, expect failure)..." -ForegroundColor Yellow
+$env:MIGRATION_EXCLUDED_TABLES = "EDGE_TEST_EXCLUDED_PARENT"
+$env:MIGRATION_ROW_LIMIT = "1000"
+
+try {
+    $ErrorActionPreference = "Continue"
+    java -jar target/oracle-gaussdb-migration-0.1.0-SNAPSHOT.jar
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -eq 0) {
+        Write-Error "Run 1 (Blocker Test) should have failed, but exited with status 0!"
+        exit 1
+    }
+    Write-Host "Run 1 (Blocker Test) failed as expected with status $exitCode." -ForegroundColor Green
+} catch {
+    Write-Host "Run 1 failed as expected." -ForegroundColor Green
+} finally {
+    $ErrorActionPreference = "Stop"
+}
+
+# --- RUN 2: Happy Path Test (expect pass with exclusions) ---
+Write-Host "Executing Run 2: Happy Path Test (excluding blocker, expect success)..." -ForegroundColor Yellow
+$env:MIGRATION_EXCLUDED_TABLES = "EDGE_TEST_EXCLUDED_PARENT,EDGE_TEST_LOB_TABLE"
+
 java -jar target/oracle-gaussdb-migration-0.1.0-SNAPSHOT.jar
+$exitCode = $LASTEXITCODE
+
+if ($exitCode -ne 0) {
+    Write-Error "Run 2 (Happy Path) failed with exit code $exitCode!"
+    exit 1
+}
 
 Write-Host ""
 Write-Host "=============================================" -ForegroundColor Green

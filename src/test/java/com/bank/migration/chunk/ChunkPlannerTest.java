@@ -27,9 +27,32 @@ class ChunkPlannerTest {
         List<ChunkPlan> chunks = planner.plan(table, 1L, 10_000L, 5_000);
 
         assertThat(chunks).containsExactly(
-            new ChunkPlan("ACCOUNT-000001", "ID", "ID >= 1 and ID <= 5000", "PRIMARY_KEY_RANGE"),
-            new ChunkPlan("ACCOUNT-000002", "ID", "ID >= 5001 and ID <= 10000", "PRIMARY_KEY_RANGE")
+            new ChunkPlan("ACCOUNT-000001", "ID", "ID >= 1 and ID <= 5000", "NUMERIC_PRIMARY_KEY"),
+            new ChunkPlan("ACCOUNT-000002", "ID", "ID >= 5001 and ID <= 10000", "NUMERIC_PRIMARY_KEY")
         );
+    }
+
+    @Test
+    void plansRowNumberChunksForVarcharPrimaryKey() {
+        TableMetadata table = new TableMetadata(
+            "BANK_CORE",
+            "EBA_CITY",
+            ObjectStatus.READY,
+            List.of(new ColumnMetadata("CITYID", "VARCHAR2", 20, null, false, null)),
+            List.of(new KeyMetadata("PK_CITY", "PRIMARY_KEY", List.of("CITYID"), null, null)),
+            List.of()
+        );
+
+        ChunkPlanner planner = new ChunkPlanner();
+
+        List<ChunkPlan> chunks = planner.plan(table, 1L, 10_000L, 5_000);
+
+        assertThat(chunks).hasSize(2);
+        assertThat(chunks.getFirst().columnName()).isEqualTo("ROWID");
+        assertThat(chunks.getFirst().strategy()).isEqualTo("ROW_NUMBER");
+        assertThat(chunks.getFirst().whereClause())
+            .doesNotContain("CITYID >= 1")
+            .contains("ROWID in (select rid from (select ROWID rid, row_number() over (order by CITYID) rn from BANK_CORE.EBA_CITY) where rn >= 1 and rn <= 5000)");
     }
 
     @Test
@@ -43,13 +66,13 @@ class ChunkPlannerTest {
                 "AUDIT_LOG-000001",
                 "ROWID",
                 "ROWID in (select rid from (select ROWID rid, row_number() over (order by ROWID) rn from BANK_CORE.AUDIT_LOG) where rn >= 1 and rn <= 5000)",
-                "ROWID_FALLBACK"
+                "ROWID"
             ),
             new ChunkPlan(
                 "AUDIT_LOG-000002",
                 "ROWID",
                 "ROWID in (select rid from (select ROWID rid, row_number() over (order by ROWID) rn from BANK_CORE.AUDIT_LOG) where rn >= 5001 and rn <= 10000)",
-                "ROWID_FALLBACK"
+                "ROWID"
             )
         );
     }

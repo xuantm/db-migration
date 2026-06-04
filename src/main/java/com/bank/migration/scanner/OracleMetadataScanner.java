@@ -5,6 +5,8 @@ import com.bank.migration.domain.IndexMetadata;
 import com.bank.migration.domain.KeyMetadata;
 import com.bank.migration.domain.MigrationManifest;
 import com.bank.migration.domain.ObjectStatus;
+import com.bank.migration.domain.SchemaObjectMetadata;
+import com.bank.migration.domain.SchemaObjectType;
 import com.bank.migration.domain.TableMetadata;
 import com.bank.migration.domain.ViewMetadata;
 import java.math.BigDecimal;
@@ -21,6 +23,8 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class OracleMetadataScanner {
+    public static final String SCANNER_CONTRACT_VERSION = "oracle-metadata-scan-v1";
+
     public static final String TABLE_SQL = """
         select table_name
         from all_tables
@@ -52,9 +56,10 @@ public class OracleMetadataScanner {
         """;
 
     public static final String INDEX_SQL = """
-        select i.table_name, i.index_name, i.uniqueness, ic.column_name
+        select i.table_name, i.index_name, i.uniqueness, ic.column_name, ie.column_expression, i.index_type
         from all_indexes i
-        join all_ind_columns ic on ic.index_owner = i.owner and ic.index_name = i.index_name
+        join all_ind_columns ic on ic.index_owner = i.owner and ic.index_name = i.index_name and ic.table_name = i.table_name
+        left join all_ind_expressions ie on ie.index_owner = ic.index_owner and ie.index_name = ic.index_name and ie.table_name = ic.table_name and ie.column_position = ic.column_position
         where i.owner = ?
           and not exists (
             select 1
@@ -72,6 +77,16 @@ public class OracleMetadataScanner {
         from all_views
         where owner = ?
         order by view_name
+        """;
+
+    public static final String VIEW_DEPENDENCY_SQL = """
+        select name, referenced_name
+        from all_dependencies
+        where owner = ?
+          and type = 'VIEW'
+          and referenced_type = 'TABLE'
+          and referenced_owner = ?
+        order by name, referenced_name
         """;
 
     static final RowMapper<ColumnRow> COLUMN_ROW_MAPPER = (rs, rowNum) -> new ColumnRow(
@@ -108,7 +123,9 @@ public class OracleMetadataScanner {
             rs.getString("table_name"),
             rs.getString("index_name"),
             rs.getString("uniqueness"),
-            rs.getString("column_name")
+            rs.getString("column_name"),
+            rs.getString("column_expression"),
+            rs.getString("index_type")
         ), oracleOwner);
         // The current scanner intentionally reads ALL_VIEWS.TEXT only; later view planning/reporting
         // will flag unsupported Oracle view SQL for review.
@@ -116,6 +133,17 @@ public class OracleMetadataScanner {
             rs.getString("view_name"),
             rs.getString("text")
         ), oracleOwner);
+
+        List<ViewDependencyRow> dependencies = jdbc.query(VIEW_DEPENDENCY_SQL, (rs, rowNum) -> new ViewDependencyRow(
+            rs.getString("name"),
+            rs.getString("referenced_name")
+        ), oracleOwner, oracleOwner);
+
+        Map<String, List<String>> viewDeps = dependencies.stream()
+            .collect(Collectors.groupingBy(
+                ViewDependencyRow::viewName,
+                Collectors.mapping(ViewDependencyRow::tableName, Collectors.toList())
+            ));
 
         List<TableMetadata> tables = tableNames.stream()
             .map(table -> {
@@ -132,10 +160,141 @@ public class OracleMetadataScanner {
             .toList();
 
         List<ViewMetadata> viewMetadata = views.stream()
-            .map(view -> new ViewMetadata(oracleOwner, view.name(), ObjectStatus.READY, view.sql(), List.of(), List.of()))
+            .map(view -> {
+                List<String> deps = viewDeps.getOrDefault(view.name(), List.of());
+                return new ViewMetadata(oracleOwner, view.name(), ObjectStatus.READY, view.sql(), deps, List.of());
+            })
             .toList();
 
-        return new MigrationManifest(runId, oracleOwner, tables, viewMetadata);
+        List<SchemaObjectMetadata> schemaObjects = new ArrayList<>();
+
+        // Query sequences, synonyms, triggers, procedures, functions, packages, types
+        List<Map<String, Object>> rawObjects = jdbc.query(
+            "select object_name, object_type, status from all_objects where owner = ? " +
+            "and object_type in ('SEQUENCE', 'SYNONYM', 'MATERIALIZED VIEW', 'TRIGGER', 'PROCEDURE', 'FUNCTION', 'PACKAGE', 'TYPE') " +
+            "order by object_type, object_name",
+            (rs, rn) -> Map.of(
+                "object_name", rs.getString("object_name"),
+                "object_type", rs.getString("object_type"),
+                "status", rs.getString("status")
+            ),
+            oracleOwner
+        );
+        for (Map<String, Object> row : rawObjects) {
+            String name = (String) row.get("object_name");
+            String typeStr = (String) row.get("object_type");
+            String statusStr = (String) row.get("status");
+
+            SchemaObjectType type;
+            ObjectStatus status = "VALID".equalsIgnoreCase(statusStr) ? ObjectStatus.READY : ObjectStatus.WARNING;
+            List<String> notes = new ArrayList<>();
+
+            if ("SEQUENCE".equals(typeStr)) {
+                type = SchemaObjectType.SEQUENCE;
+            } else if ("SYNONYM".equals(typeStr)) {
+                type = SchemaObjectType.SYNONYM;
+                status = ObjectStatus.NEEDS_REVIEW;
+                notes.add("Synonym is out of scope and will not be migrated.");
+            } else if ("MATERIALIZED VIEW".equals(typeStr)) {
+                type = SchemaObjectType.MATERIALIZED_VIEW;
+                status = ObjectStatus.NEEDS_REVIEW;
+                notes.add("Materialized view is out of scope and will not be migrated.");
+            } else if ("TRIGGER".equals(typeStr)) {
+                type = SchemaObjectType.TRIGGER;
+                status = ObjectStatus.NEEDS_REVIEW;
+                notes.add("Trigger is out of scope and will not be migrated.");
+            } else if ("PROCEDURE".equals(typeStr)) {
+                type = SchemaObjectType.PROCEDURE;
+                status = ObjectStatus.NEEDS_REVIEW;
+                notes.add("Procedure is out of scope and will not be migrated.");
+            } else if ("FUNCTION".equals(typeStr)) {
+                type = SchemaObjectType.FUNCTION;
+                status = ObjectStatus.NEEDS_REVIEW;
+                notes.add("Function is out of scope and will not be migrated.");
+            } else if ("PACKAGE".equals(typeStr)) {
+                type = SchemaObjectType.PACKAGE;
+                status = ObjectStatus.NEEDS_REVIEW;
+                notes.add("Package is out of scope and will not be migrated.");
+            } else if ("TYPE".equals(typeStr)) {
+                type = SchemaObjectType.TYPE;
+                status = ObjectStatus.NEEDS_REVIEW;
+                notes.add("Type is out of scope and will not be migrated.");
+            } else {
+                continue;
+            }
+
+            schemaObjects.add(new SchemaObjectMetadata(oracleOwner, name, type, status, notes));
+        }
+
+        // Query check constraints
+        List<Map<String, Object>> rawConstraints = jdbc.query(
+            "select constraint_name, table_name, status, search_condition from all_constraints where owner = ? and constraint_type = 'C' order by constraint_name",
+            (rs, rn) -> {
+                String cname = rs.getString("constraint_name");
+                String tname = rs.getString("table_name");
+                String status = rs.getString("status");
+                String searchCond = rs.getString("search_condition");
+                return Map.of(
+                    "constraint_name", cname != null ? cname : "",
+                    "table_name", tname != null ? tname : "",
+                    "status", status != null ? status : "",
+                    "search_condition", searchCond != null ? searchCond : ""
+                );
+            },
+            oracleOwner
+        );
+        for (Map<String, Object> row : rawConstraints) {
+            String name = (String) row.get("constraint_name");
+            String tableName = (String) row.get("table_name");
+            String statusStr = (String) row.get("status");
+            String searchCondition = (String) row.get("search_condition");
+
+            if (isGeneratedNotNullConstraint(searchCondition)) {
+                continue;
+            }
+
+            ObjectStatus status = "ENABLED".equalsIgnoreCase(statusStr) ? ObjectStatus.READY : ObjectStatus.WARNING;
+            schemaObjects.add(new SchemaObjectMetadata(
+                oracleOwner,
+                name,
+                SchemaObjectType.CHECK_CONSTRAINT,
+                status,
+                List.of("Check constraint on table " + tableName)
+            ));
+        }
+
+        // Query function-based indexes and bitmap indexes
+        Map<String, List<IndexRow>> indexGroup = indexes.stream()
+            .collect(Collectors.groupingBy(IndexRow::indexName));
+        for (Map.Entry<String, List<IndexRow>> entry : indexGroup.entrySet()) {
+            String indexName = entry.getKey();
+            List<IndexRow> group = entry.getValue();
+            IndexRow first = group.getFirst();
+
+            boolean isBitmap = "BITMAP".equalsIgnoreCase(first.indexType());
+            boolean isFunctionBased = group.stream().anyMatch(r -> r.columnExpression() != null && !r.columnExpression().isBlank());
+
+            if (isFunctionBased) {
+                schemaObjects.add(new SchemaObjectMetadata(
+                    oracleOwner,
+                    indexName,
+                    SchemaObjectType.FUNCTION_BASED_INDEX,
+                    ObjectStatus.NEEDS_REVIEW,
+                    List.of("Function-based index on table " + first.tableName())
+                ));
+            }
+            if (isBitmap) {
+                schemaObjects.add(new SchemaObjectMetadata(
+                    oracleOwner,
+                    indexName,
+                    SchemaObjectType.BITMAP_INDEX,
+                    ObjectStatus.NEEDS_REVIEW,
+                    List.of("Bitmap index on table " + first.tableName())
+                ));
+            }
+        }
+
+        return new MigrationManifest(runId, oracleOwner, tables, viewMetadata, schemaObjects);
     }
 
     private static List<ColumnMetadata> toColumns(String table, List<ColumnRow> rows) {
@@ -183,12 +342,28 @@ public class OracleMetadataScanner {
         List<IndexMetadata> indexes = new ArrayList<>();
         for (List<IndexRow> group : grouped.values()) {
             IndexRow first = group.getFirst();
-            List<String> indexCols = group.stream().map(IndexRow::columnName).toList();
+            boolean isBitmap = "BITMAP".equalsIgnoreCase(first.indexType());
+            boolean isFunctionBased = group.stream().anyMatch(r -> r.columnExpression() != null && !r.columnExpression().isBlank());
+            if (isBitmap || isFunctionBased) {
+                continue;
+            }
+
+            List<String> indexCols = new ArrayList<>();
+            boolean allColsValid = true;
+            for (IndexRow row : group) {
+                String expr = row.columnExpression();
+                if (expr != null && !expr.isBlank()) {
+                    indexCols.add(expr);
+                } else {
+                    String colName = row.columnName();
+                    indexCols.add(colName);
+                    if (colName == null || !colNames.contains(colName.toUpperCase(Locale.ROOT))) {
+                        allColsValid = false;
+                    }
+                }
+            }
             
-            boolean allColsExist = indexCols.stream()
-                .allMatch(col -> colNames.contains(col.toUpperCase(Locale.ROOT)));
-                
-            if (allColsExist) {
+            if (allColsValid) {
                 indexes.add(new IndexMetadata(
                     first.indexName(),
                     "UNIQUE".equalsIgnoreCase(first.uniqueness()),
@@ -236,12 +411,29 @@ public class OracleMetadataScanner {
         return sourceSchema.toUpperCase(Locale.ROOT);
     }
 
+    private static final java.util.regex.Pattern NOT_NULL_PATTERN = java.util.regex.Pattern.compile(
+        "^(\"[^\"]+\"|[A-Za-z0-9_#$]+)\\s+IS\\s+NOT\\s+NULL$", 
+        java.util.regex.Pattern.CASE_INSENSITIVE
+    );
+
+    private static boolean isGeneratedNotNullConstraint(String searchCondition) {
+        if (searchCondition == null || searchCondition.isBlank()) {
+            return false;
+        }
+        return NOT_NULL_PATTERN.matcher(searchCondition.trim()).matches();
+    }
+
     public record ColumnRow(String tableName, String columnName, String dataType, Integer precision, Integer scale, String nullable, String dataDefault) {}
     public record KeyRow(String tableName, String constraintName, String constraintType, String validated, String columnName, String referencedTableName, String referencedColumnName) {
         public KeyRow(String tableName, String constraintName, String constraintType, String columnName, String referencedTableName, String referencedColumnName) {
             this(tableName, constraintName, constraintType, "VALIDATED", columnName, referencedTableName, referencedColumnName);
         }
     }
-    public record IndexRow(String tableName, String indexName, String uniqueness, String columnName) {}
+    public record IndexRow(String tableName, String indexName, String uniqueness, String columnName, String columnExpression, String indexType) {
+        public IndexRow(String tableName, String indexName, String uniqueness, String columnName, String columnExpression) {
+            this(tableName, indexName, uniqueness, columnName, columnExpression, "NORMAL");
+        }
+    }
     public record ViewRow(String name, String sql) {}
+    public record ViewDependencyRow(String viewName, String tableName) {}
 }

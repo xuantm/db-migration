@@ -58,6 +58,11 @@ Optional:
 - `MIGRATION_BATCH_FETCH_SIZE`, default `5000`
 - `MIGRATION_BATCH_MAX_PARALLEL_TABLES`, default `2`
 - `MIGRATION_REPORT_OUTPUT_DIR`, default `build/migration-reports`
+- `MIGRATION_MANIFEST_CACHE_ENABLED`, default `false`
+- `MIGRATION_MANIFEST_CACHE_LOAD_FROM_CACHE`, default `false`
+- `MIGRATION_MANIFEST_CACHE_SAVE_AFTER_SCAN`, default `false`
+- `MIGRATION_MANIFEST_CACHE_CACHE_KEY`, default `DEFAULT_KEY`
+- `MIGRATION_MANIFEST_CACHE_FAIL_IF_CACHE_MISSING`, default `false`
 
 ## Run
 
@@ -90,6 +95,9 @@ The tool writes operational audit records to the target database:
 
 - `migration_audit.checkpoints`
 - `migration_audit.errors`
+- `migration_audit.runs`
+- `migration_audit.phase_status`
+- `migration_audit.manifest_cache`
 
 Reports are written to `MIGRATION_REPORT_OUTPUT_DIR`:
 
@@ -106,6 +114,8 @@ Validation includes:
 - Source row count vs target row count per table
 - Duplicate checks for primary and unique keys
 - Foreign-key orphan checks after constraints are added
+- MD5 checksum validation of all scalar columns
+- Sample row data value comparisons (up to 100 sample rows per table)
 
 The final report status is:
 

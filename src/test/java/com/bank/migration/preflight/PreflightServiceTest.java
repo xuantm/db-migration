@@ -3,6 +3,9 @@ package com.bank.migration.preflight;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
+import com.bank.migration.dialect.GaussDialect;
+import com.bank.migration.identifier.IdentifierMappingPolicy;
+import com.bank.migration.identifier.IdentifierRenderer;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,6 +18,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 class PreflightServiceTest {
     @Mock JdbcTemplate sourceJdbc;
     @Mock JdbcTemplate targetJdbc;
+
+    private PreflightService serviceWithPolicy(IdentifierMappingPolicy policy) {
+        return new PreflightService(sourceJdbc, targetJdbc, new IdentifierRenderer(new GaussDialect(policy)));
+    }
 
     @Test
     void failsWhenTargetSchemaContainsRows() {
@@ -31,7 +38,7 @@ class PreflightServiceTest {
             "bank_core"
         )).thenReturn(3);
 
-        PreflightService service = new PreflightService(sourceJdbc, targetJdbc);
+        PreflightService service = serviceWithPolicy(IdentifierMappingPolicy.QUOTE);
 
         List<PreflightCheck> checks = service.run("bank_core", true);
 
@@ -58,7 +65,7 @@ class PreflightServiceTest {
             "bank_core"
         )).thenReturn(0);
 
-        PreflightService service = new PreflightService(sourceJdbc, targetJdbc);
+        PreflightService service = serviceWithPolicy(IdentifierMappingPolicy.QUOTE);
 
         List<PreflightCheck> checks = service.run("bank_core", true);
 
@@ -93,7 +100,7 @@ class PreflightServiceTest {
             "bank_core"
         )).thenReturn(5);
 
-        PreflightService service = new PreflightService(sourceJdbc, targetJdbc);
+        PreflightService service = serviceWithPolicy(IdentifierMappingPolicy.QUOTE);
 
         List<PreflightCheck> checks = service.run("bank_core", false);
 
@@ -120,7 +127,7 @@ class PreflightServiceTest {
             "bank_core"
         )).thenReturn(2);
 
-        PreflightService service = new PreflightService(sourceJdbc, targetJdbc);
+        PreflightService service = serviceWithPolicy(IdentifierMappingPolicy.QUOTE);
 
         List<PreflightCheck> checks = service.run("bank_core", true);
 
@@ -129,6 +136,56 @@ class PreflightServiceTest {
             assertThat(check.passed()).isFalse();
             assertThat(check.message()).contains("0 existing tables");
             assertThat(check.message()).contains("2 existing objects");
+        });
+    }
+
+    @Test
+    void metadataQueriesCompareAgainstUserUnderQuotePolicy() {
+        when(sourceJdbc.queryForObject("select 1 from dual", Integer.class)).thenReturn(1);
+        when(targetJdbc.queryForObject("select 1", Integer.class)).thenReturn(1);
+        when(targetJdbc.queryForObject(
+            "select count(*) from information_schema.tables where table_schema = ?",
+            Integer.class,
+            "USER"
+        )).thenReturn(0);
+        when(targetJdbc.queryForObject(
+            "select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = ? and c.relkind in ('r','p','v','m','S','f')",
+            Integer.class,
+            "USER"
+        )).thenReturn(0);
+
+        PreflightService service = serviceWithPolicy(IdentifierMappingPolicy.QUOTE);
+
+        List<PreflightCheck> checks = service.run("USER", true);
+
+        assertThat(checks).anySatisfy(check -> {
+            assertThat(check.name()).isEqualTo("target-schema-empty");
+            assertThat(check.passed()).isTrue();
+        });
+    }
+
+    @Test
+    void metadataQueriesCompareAgainstUserUnderRenamePolicy() {
+        when(sourceJdbc.queryForObject("select 1 from dual", Integer.class)).thenReturn(1);
+        when(targetJdbc.queryForObject("select 1", Integer.class)).thenReturn(1);
+        when(targetJdbc.queryForObject(
+            "select count(*) from information_schema.tables where table_schema = ?",
+            Integer.class,
+            "user_"
+        )).thenReturn(0);
+        when(targetJdbc.queryForObject(
+            "select count(*) from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid = c.relnamespace where n.nspname = ? and c.relkind in ('r','p','v','m','S','f')",
+            Integer.class,
+            "user_"
+        )).thenReturn(0);
+
+        PreflightService service = serviceWithPolicy(IdentifierMappingPolicy.RENAME);
+
+        List<PreflightCheck> checks = service.run("USER", true);
+
+        assertThat(checks).anySatisfy(check -> {
+            assertThat(check.name()).isEqualTo("target-schema-empty");
+            assertThat(check.passed()).isTrue();
         });
     }
 }

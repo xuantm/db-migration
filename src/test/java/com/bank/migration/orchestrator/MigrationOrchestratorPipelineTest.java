@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -33,6 +34,7 @@ import com.bank.migration.preflight.PreflightCheck;
 import com.bank.migration.preflight.PreflightService;
 import com.bank.migration.report.MigrationReport;
 import com.bank.migration.report.ReportWriter;
+import com.bank.migration.report.ChunkStrategyRecord;
 import com.bank.migration.scanner.OracleMetadataScanner;
 import com.bank.migration.validate.ValidationCoordinator;
 import com.bank.migration.validate.ValidationResult;
@@ -67,6 +69,7 @@ class MigrationOrchestratorPipelineTest {
     @Mock ViewPlanner viewPlanner;
     @Mock ViewApplier viewApplier;
     @Mock ReportWriter reportWriter;
+    @Mock com.bank.migration.readiness.ReadinessEvaluator readinessEvaluator;
 
     @Test
     void runsCleanLoadPipelineInOrder() throws Exception {
@@ -75,7 +78,10 @@ class MigrationOrchestratorPipelineTest {
             new MigrationProperties.Database("dst", "u", "p", "driver", "bank_core"),
             true,
             new MigrationProperties.Batch(5000, 5000, 2),
-            new MigrationProperties.Reports("build/reports")
+            new MigrationProperties.Reports("build/reports"),
+            null,
+            null,
+            null
         );
         TableMetadata account = new TableMetadata(
             "BANK_CORE",
@@ -95,6 +101,7 @@ class MigrationOrchestratorPipelineTest {
 
         when(preflightService.run("bank_core", true)).thenReturn(List.of(new PreflightCheck("target-schema-empty", true, "ok")));
         when(scanner.scan(org.mockito.ArgumentMatchers.anyString(), eq("BANK_CORE"))).thenReturn(manifest);
+        when(readinessEvaluator.evaluate(any(), any())).thenReturn(new com.bank.migration.readiness.ReadinessReport(List.of(), false));
         when(ddlPlanner.plan("bank_core", account)).thenReturn(List.of(tableDdl, constraintDdl));
         when(chunkBoundsService.bounds(account)).thenReturn(new ChunkBounds(1L, 10L));
         when(chunkPlanner.plan(account, 1L, 10L, 5000)).thenReturn(List.of(chunk));
@@ -117,7 +124,8 @@ class MigrationOrchestratorPipelineTest {
             validationCoordinator,
             viewPlanner,
             viewApplier,
-            reportWriter
+            reportWriter,
+            readinessEvaluator
         );
 
         orchestrator.run(props);
@@ -130,7 +138,13 @@ class MigrationOrchestratorPipelineTest {
         order.verify(ddlApplier).apply(List.of(constraintDdl));
         order.verify(viewApplier).applyReadyViews("bank_core", List.of(viewPlan));
         order.verify(validationCoordinator).validate(manifest, "bank_core");
-        order.verify(reportWriter).write(any(MigrationReport.class), eq(Path.of("build/reports")));
+        
+        ArgumentCaptor<MigrationReport> reportCaptor = ArgumentCaptor.forClass(MigrationReport.class);
+        order.verify(reportWriter).write(reportCaptor.capture(), eq(Path.of("build/reports")));
+        assertThat(reportCaptor.getValue().chunkStrategies()).hasSize(1);
+        assertThat(reportCaptor.getValue().chunkStrategies().getFirst().tableName()).isEqualTo("ACCOUNT");
+        assertThat(reportCaptor.getValue().chunkStrategies().getFirst().strategy()).isEqualTo("PRIMARY_KEY_RANGE");
+
         verify(checkpointStore).save(org.mockito.ArgumentMatchers.argThat(record ->
             record.status() == ChunkStatus.SUCCESS
                 && record.tableName().equals("ACCOUNT")
@@ -147,7 +161,10 @@ class MigrationOrchestratorPipelineTest {
             new MigrationProperties.Database("dst", "u", "p", "driver", "bank_core"),
             true,
             new MigrationProperties.Batch(5000, 5000, 2),
-            new MigrationProperties.Reports("build/reports")
+            new MigrationProperties.Reports("build/reports"),
+            null,
+            null,
+            null
         );
         TableMetadata account = new TableMetadata(
             "BANK_CORE",
@@ -162,6 +179,7 @@ class MigrationOrchestratorPipelineTest {
         DdlStatement tableDdl = new DdlStatement("TABLE", "ACCOUNT", "create table bank_core.account (id bigint)");
         when(preflightService.run("bank_core", true)).thenReturn(List.of(new PreflightCheck("target-schema-empty", true, "ok")));
         when(scanner.scan(org.mockito.ArgumentMatchers.anyString(), eq("BANK_CORE"))).thenReturn(manifest);
+        when(readinessEvaluator.evaluate(any(), any())).thenReturn(new com.bank.migration.readiness.ReadinessReport(List.of(), false));
         when(ddlPlanner.plan("bank_core", account)).thenReturn(List.of(tableDdl));
         when(chunkBoundsService.bounds(account)).thenReturn(new ChunkBounds(1L, 10L));
         when(chunkPlanner.plan(account, 1L, 10L, 5000)).thenReturn(List.of(chunk));
@@ -182,7 +200,8 @@ class MigrationOrchestratorPipelineTest {
             validationCoordinator,
             viewPlanner,
             viewApplier,
-            reportWriter
+            reportWriter,
+            readinessEvaluator
         );
 
         assertThatThrownBy(() -> orchestrator.run(props))
@@ -197,6 +216,136 @@ class MigrationOrchestratorPipelineTest {
             assertThat(error.objectName()).isEqualTo("ACCOUNT");
             assertThat(error.chunkId()).isEqualTo("ACCOUNT-000001");
             assertThat(error.message()).contains("source read failed");
+        });
+    }
+
+    @Test
+    void skipsExcludedObjectsInPipeline() throws Exception {
+        MigrationProperties.Excluded excluded = new MigrationProperties.Excluded(
+            List.of("EBA_ATM"),
+            List.of("V_AUDIT"),
+            List.of("my_seq")
+        );
+        MigrationProperties props = new MigrationProperties(
+            new MigrationProperties.Database("src", "u", "p", "driver", "BANK_CORE"),
+            new MigrationProperties.Database("dst", "u", "p", "driver", "bank_core"),
+            true,
+            new MigrationProperties.Batch(5000, 5000, 2),
+            new MigrationProperties.Reports("build/reports"),
+            null,
+            excluded,
+            null
+        );
+
+        TableMetadata customers = new TableMetadata(
+            "BANK_CORE", "CUSTOMERS", ObjectStatus.READY,
+            List.of(new ColumnMetadata("ID", "NUMBER", 19, 0, false, null)),
+            List.of(), List.of()
+        );
+        TableMetadata ebaAtm = new TableMetadata(
+            "BANK_CORE", "EBA_ATM", ObjectStatus.READY,
+            List.of(new ColumnMetadata("ID", "NUMBER", 19, 0, false, null)),
+            List.of(), List.of()
+        );
+        ViewMetadata vAudit = new ViewMetadata(
+            "BANK_CORE", "V_AUDIT", ObjectStatus.READY,
+            "select * from audit", List.of(), List.of()
+        );
+        ViewMetadata vDependent = new ViewMetadata(
+            "BANK_CORE", "V_DEPENDENT", ObjectStatus.READY,
+            "select * from eba_atm", List.of("EBA_ATM"), List.of()
+        );
+        com.bank.migration.domain.SchemaObjectMetadata mySeq = new com.bank.migration.domain.SchemaObjectMetadata(
+            "BANK_CORE", "MY_SEQ", com.bank.migration.domain.SchemaObjectType.SEQUENCE, ObjectStatus.READY, List.of()
+        );
+        com.bank.migration.domain.SchemaObjectMetadata otherSeq = new com.bank.migration.domain.SchemaObjectMetadata(
+            "BANK_CORE", "OTHER_SEQ", com.bank.migration.domain.SchemaObjectType.SEQUENCE, ObjectStatus.READY, List.of()
+        );
+
+        MigrationManifest manifest = new MigrationManifest("run-002", "BANK_CORE", List.of(customers, ebaAtm), List.of(vAudit, vDependent), List.of(mySeq, otherSeq));
+        ChunkPlan customerChunk = new ChunkPlan("CUSTOMERS-000001", "ID", "ID >= 1 and ID <= 10", "PRIMARY_KEY_RANGE");
+        DdlStatement customersDdl = new DdlStatement("TABLE", "CUSTOMERS", "create table bank_core.customers (id bigint)");
+
+        ViewPlan vAuditPlan = new ViewPlan("V_AUDIT", ObjectStatus.EXCLUDED, "", List.of("View is excluded"));
+        ViewPlan vDependentPlan = new ViewPlan("V_DEPENDENT", ObjectStatus.NEEDS_REVIEW, "create view bank_core.v_dependent as select * from eba_atm", List.of("View status is NEEDS_REVIEW (e.g. references excluded object)"));
+
+        when(preflightService.run("bank_core", true)).thenReturn(List.of(new PreflightCheck("target-schema-empty", true, "ok")));
+        when(scanner.scan(any(), eq("BANK_CORE"))).thenReturn(manifest);
+        when(readinessEvaluator.evaluate(any(MigrationManifest.class), eq(props))).thenReturn(new com.bank.migration.readiness.ReadinessReport(List.of(), false));
+        
+        when(ddlPlanner.plan("bank_core", customers)).thenReturn(List.of(customersDdl));
+        when(chunkBoundsService.bounds(customers)).thenReturn(new ChunkBounds(1L, 10L));
+        when(chunkPlanner.plan(customers, 1L, 10L, 5000)).thenReturn(List.of(customerChunk));
+        when(dataCopyService.copyChunk(customers, "bank_core", customerChunk)).thenReturn(new TableCopyResult(10, 10));
+        
+        ViewMetadata vAuditResolved = new ViewMetadata(
+            "BANK_CORE", "V_AUDIT", ObjectStatus.EXCLUDED,
+            "select * from audit", List.of(), List.of(),
+            "Excluded by configuration"
+        );
+        ViewMetadata vDependentResolved = new ViewMetadata(
+            "BANK_CORE", "V_DEPENDENT", ObjectStatus.NEEDS_REVIEW,
+            "select * from eba_atm", List.of("EBA_ATM"), List.of("References excluded table(s): EBA_ATM"),
+            "References excluded table(s): EBA_ATM"
+        );
+        
+        when(viewPlanner.plan("bank_core", vAuditResolved)).thenReturn(vAuditPlan);
+        when(viewPlanner.plan("bank_core", vDependentResolved)).thenReturn(vDependentPlan);
+
+        MigrationOrchestrator orchestrator = new MigrationOrchestrator(
+            preflightService, auditSchemaService, scanner, targetSchemaService,
+            ddlPlanner, ddlApplier, chunkBoundsService, chunkPlanner, dataCopyService,
+            checkpointStore, errorLogStore, validationCoordinator, viewPlanner, viewApplier,
+            reportWriter, readinessEvaluator
+        );
+
+        orchestrator.run(props);
+
+        // Verify that DDL/copy/validation is only executed for CUSTOMERS and not for EBA_ATM
+        verify(ddlPlanner).plan("bank_core", customers);
+        verify(ddlPlanner, never()).plan("bank_core", ebaAtm);
+        
+        verify(chunkBoundsService).bounds(customers);
+        verify(chunkBoundsService, never()).bounds(ebaAtm);
+        
+        verify(dataCopyService).copyChunk(customers, "bank_core", customerChunk);
+        verify(dataCopyService, never()).copyChunk(eq(ebaAtm), any(), any());
+
+        // Verify view planners and appliers are called, but viewApplier applies nothing since none are READY
+        verify(viewPlanner).plan("bank_core", vAuditResolved);
+        verify(viewPlanner).plan("bank_core", vDependentResolved);
+        verify(viewApplier).applyReadyViews("bank_core", List.of(vAuditPlan, vDependentPlan));
+
+        // ValidationCoordinator is called on the updated manifest
+        verify(validationCoordinator).validate(any(MigrationManifest.class), eq("bank_core"));
+
+        ArgumentCaptor<MigrationReport> reportCaptor = ArgumentCaptor.forClass(MigrationReport.class);
+        verify(reportWriter).write(reportCaptor.capture(), eq(Path.of("build/reports")));
+        MigrationReport report = reportCaptor.getValue();
+        assertThat(report.excludedObjectDecisions()).hasSize(4);
+        assertThat(report.excludedObjectDecisions()).anySatisfy(decision -> {
+            assertThat(decision.objectType()).isEqualTo("TABLE");
+            assertThat(decision.objectName()).isEqualTo("EBA_ATM");
+            assertThat(decision.status()).isEqualTo("EXCLUDED");
+            assertThat(decision.reason()).isEqualTo("Excluded by configuration");
+        });
+        assertThat(report.excludedObjectDecisions()).anySatisfy(decision -> {
+            assertThat(decision.objectType()).isEqualTo("VIEW");
+            assertThat(decision.objectName()).isEqualTo("V_AUDIT");
+            assertThat(decision.status()).isEqualTo("EXCLUDED");
+            assertThat(decision.reason()).isEqualTo("Excluded by configuration");
+        });
+        assertThat(report.excludedObjectDecisions()).anySatisfy(decision -> {
+            assertThat(decision.objectType()).isEqualTo("VIEW");
+            assertThat(decision.objectName()).isEqualTo("V_DEPENDENT");
+            assertThat(decision.status()).isEqualTo("NEEDS_REVIEW");
+            assertThat(decision.reason()).isEqualTo("References excluded table(s): EBA_ATM");
+        });
+        assertThat(report.excludedObjectDecisions()).anySatisfy(decision -> {
+            assertThat(decision.objectType()).isEqualTo("SEQUENCE");
+            assertThat(decision.objectName()).isEqualTo("MY_SEQ");
+            assertThat(decision.status()).isEqualTo("EXCLUDED");
+            assertThat(decision.reason()).isEqualTo("Excluded by configuration");
         });
     }
 }

@@ -3,16 +3,23 @@ package com.bank.migration.ddl;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.bank.migration.dialect.GaussDialect;
 import com.bank.migration.domain.ColumnMetadata;
 import com.bank.migration.domain.IndexMetadata;
 import com.bank.migration.domain.KeyMetadata;
 import com.bank.migration.domain.ObjectStatus;
 import com.bank.migration.domain.TableMetadata;
+import com.bank.migration.identifier.IdentifierMappingPolicy;
+import com.bank.migration.identifier.IdentifierRenderer;
+import com.bank.migration.types.OracleToGaussTypeMapper;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class TableDdlPlannerTest {
-    private final TableDdlPlanner planner = new TableDdlPlanner(new OracleToGaussTypeMapper());
+    private final TableDdlPlanner planner = new TableDdlPlanner(
+        new OracleToGaussTypeMapper(),
+        new IdentifierRenderer(new GaussDialect(IdentifierMappingPolicy.QUOTE))
+    );
 
     @Test
     void createsTableAndDeferredIndexStatements() {
@@ -112,5 +119,59 @@ class TableDdlPlannerTest {
         assertThatThrownBy(() -> planner.plan("TARGET_SCHEMA", table))
             .isInstanceOf(IllegalArgumentException.class)
             .hasMessageContaining("ACCOUNT");
+    }
+
+    @Test
+    void plansDdlForReservedWordsUnderQuotePolicy() {
+        TableMetadata table = new TableMetadata(
+            "BANK_CORE",
+            "IBS_CUSERAPPLIMIT",
+            ObjectStatus.READY,
+            List.of(
+                new ColumnMetadata("ID", "NUMBER", 18, 0, false, null),
+                new ColumnMetadata("LIMIT", "NUMBER", 18, 0, false, null)
+            ),
+            List.of(
+                new KeyMetadata("PK_LIMIT", "PRIMARY_KEY", List.of("ID"), null, null)
+            ),
+            List.of()
+        );
+
+        IdentifierRenderer targetRenderer = new IdentifierRenderer(new GaussDialect(IdentifierMappingPolicy.QUOTE));
+        TableDdlPlanner plannerQuote = new TableDdlPlanner(new OracleToGaussTypeMapper(), targetRenderer);
+        List<DdlStatement> statements = plannerQuote.plan("TARGET_SCHEMA", table);
+
+        assertThat(statements.get(0).sql()).isEqualTo("""
+            create table target_schema.ibs_cuserapplimit (
+              id bigint not null,
+              "LIMIT" bigint not null
+            )""");
+    }
+
+    @Test
+    void plansDdlForReservedWordsUnderRenamePolicy() {
+        TableMetadata table = new TableMetadata(
+            "BANK_CORE",
+            "IBS_CUSERAPPLIMIT",
+            ObjectStatus.READY,
+            List.of(
+                new ColumnMetadata("ID", "NUMBER", 18, 0, false, null),
+                new ColumnMetadata("LIMIT", "NUMBER", 18, 0, false, null)
+            ),
+            List.of(
+                new KeyMetadata("PK_LIMIT", "PRIMARY_KEY", List.of("ID"), null, null)
+            ),
+            List.of()
+        );
+
+        IdentifierRenderer targetRenderer = new IdentifierRenderer(new GaussDialect(IdentifierMappingPolicy.RENAME));
+        TableDdlPlanner plannerRename = new TableDdlPlanner(new OracleToGaussTypeMapper(), targetRenderer);
+        List<DdlStatement> statements = plannerRename.plan("TARGET_SCHEMA", table);
+
+        assertThat(statements.get(0).sql()).isEqualTo("""
+            create table target_schema.ibs_cuserapplimit (
+              id bigint not null,
+              limit_ bigint not null
+            )""");
     }
 }
